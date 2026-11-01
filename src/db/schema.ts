@@ -39,6 +39,10 @@ export interface TransactionRecord {
   notes: string | null;
   /** Ours for entries sent by this app: `clientId`, or `<clientId>:out` / `<clientId>:in`. */
   externalId: string | null;
+  /** Sure's `created_at`, in whole seconds: orders transactions within a day as Sure lists them. */
+  createdAt: number;
+  /** Shared by both legs once Sure has paired them into a transfer. */
+  transferId: string | null;
 }
 
 export interface SuggestionRecord {

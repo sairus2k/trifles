@@ -73,7 +73,7 @@ Sure API (/api/v1, X-Api-Key)
 | `accounts`     | `id`           | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt`                                                                                    |
 | `categories`   | `id`           | `name`, `color`, `icon` (Sure no longer has category classification)                                                                                                             |
 | `merchants`    | `id`           | `name`                                                                                                                                                                           |
-| `transactions` | `id`           | Server transactions with `externalId` (matches outbox records); index on `date` and `accountId`                                                                                  |
+| `transactions` | `id`           | Server transactions with `externalId` (matches outbox records), `createdAt` (orders a day) and `transferId` (pairs transfer legs); index on `date` and `accountId`               |
 | `suggestions`  | `merchantName` | `merchantId`, `categoryId` (most used), `count`, `lastUsedAt`; rebuilt from each recent pull, merchants outside it are kept                                                      |
 | `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`, `appliedAt`; index on `createdAt` (queue order)                                                |
 | `meta`         | `key`          | `baseUrl` and `apiKey` (Settings), `syncPausedAt` (set when Sure rejects the key, cleared by saving settings), `entryAccountId` (the entry form's account, kept across restarts) |

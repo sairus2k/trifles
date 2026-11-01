@@ -148,6 +148,8 @@ describe("pullRecent", () => {
       merchantId: null,
       notes: null,
       externalId: null,
+      createdAt: 0,
+      transferId: null,
     });
     for (let day = 1; day <= 105; day++) {
       const date = new Date(Date.UTC(2026, 6, day)).toISOString().slice(0, 10);
@@ -189,8 +191,27 @@ describe("pullRecent", () => {
         merchantId: "mer-starbucks",
         notes: "Team lunch",
         externalId: "client-1",
+        createdAt: Date.parse(created.created_at),
+        transferId: null,
       },
     ]);
+  });
+
+  test("keeps the transfer that pairs a leg with its other account", async () => {
+    const leg = await serverTransaction({
+      external_id: "client-1:out",
+      source: "sure-quick-entry",
+    });
+    sure.transactions[0]!.transfer = {
+      id: "trf-1",
+      amount: "€100.00",
+      currency: "EUR",
+      other_account: { id: "acc-card", name: "Credit card", account_type: "credit_card" },
+    };
+
+    await pullRecent();
+
+    expect(await db.transactions.get(leg.id)).toMatchObject({ transferId: "trf-1" });
   });
 
   test("refreshes the account balances", async () => {

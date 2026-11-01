@@ -103,6 +103,8 @@ function toTransaction(transaction: Transaction): TransactionRecord {
     merchantId: transaction.merchant?.id ?? null,
     notes: transaction.notes ?? null,
     externalId: transaction.external_id ?? null,
+    createdAt: Date.parse(transaction.created_at),
+    transferId: transaction.transfer?.id ?? null,
   };
 }
 
