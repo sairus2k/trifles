@@ -1,4 +1,5 @@
 import solid from "@solidjs/vite-plugin";
+import { msw } from "msw/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
@@ -17,9 +18,11 @@ export default defineConfig({
       },
       {
         extends: true,
+        // Serves /mockServiceWorker.js to the test page only; the app build never loads this plugin.
+        plugins: [msw({ mode: "worker-only" })],
         test: {
           name: "browser",
-          include: ["src/**/*.browser.test.tsx"],
+          include: ["src/**/*.browser.test.tsx", "test/**/*.browser.test.tsx"],
           setupFiles: ["./test/setup.ts"],
           browser: {
             enabled: true,

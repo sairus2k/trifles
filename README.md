@@ -281,7 +281,7 @@ Effort follows risk: most of the complexity is in the sync engine, so most of th
    - `nature: "expense"` stores a positive amount;
    - two opposite transactions are auto-matched into a transfer;
    - balance update latency.
-3. **Components** in Vitest browser mode with Playwright (real IndexedDB): entry form (sign, calculator, sticky account/category), pending rows. The Dexie schema and `createLiveQuery()` are tested here too: the node project resolves `solid-js` to its non-reactive server build. Browser test files run in parallel, so a test that is not about the app's `db` opens its own uniquely named database.
+3. **Components** in Vitest browser mode with Playwright (real IndexedDB): entry form (sign, calculator, sticky account/category), pending rows. The Dexie schema and `createLiveQuery()` are tested here too: the node project resolves `solid-js` to its non-reactive server build. Browser test files run in parallel, so a test that is not about the app's `db` opens its own uniquely named database. A browser test that needs Sure starts `setupWorker(...sure.handlers)` from `msw/browser`; the browser project serves the worker script through `msw/vite` in `worker-only` mode (see `test/fake-sure/fake-sure.browser.test.tsx`).
 4. **E2E** with Playwright: install the service worker → `context.setOffline(true)` → reload → app loads; enter offline → pending row → back online → synced.
 5. **Manual checklist on a real iPhone:** install to home screen, storage persistence after several days, decimal keyboard and operator row.
 
