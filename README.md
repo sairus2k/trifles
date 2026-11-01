@@ -265,7 +265,7 @@ const recent = createLiveQuery(accountId, (id) =>
 
 ### Mobile details
 
-- Call `navigator.storage.persist()` on first run. On iOS, an app installed to the home screen is exempt from the 7-day storage eviction that applies to Safari tabs; an unsent outbox must not be lost.
+- Call `navigator.storage.persist()` on first run: Settings requests it when the settings are first saved, inside the tap on Save. On iOS, an app installed to the home screen is exempt from the 7-day storage eviction that applies to Safari tabs; an unsent outbox must not be lost.
 - The amount field uses `inputmode="decimal"` plus an on-screen operator row (`+ − × ÷`), because the decimal keyboard has no operators.
 - Dates are stored as local `YYYY-MM-DD`, never as ISO timestamps; otherwise an entry made at 00:30 lands on the previous day.
 - The calculator is a small expression parser. Never use `eval` or `new Function`.
