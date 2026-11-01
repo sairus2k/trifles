@@ -4,7 +4,7 @@ title: 'PWA: installable app that works offline'
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T17:29:00Z'
+updated_date: '2026-11-01T17:54:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -68,6 +68,15 @@ created: 2026-11-01T17:29:00Z
 ---
 
 From TASK-22: index.html has viewport-fit=cover and the screens pad with pt-safe/px-safe/pb-safe (src/index.css), so content clears the notch and home indicator. Still open here, together with the manifest: apple-mobile-web-app-status-bar-style (black-translucent always draws white status-bar text, unreadable on the light theme; default does not follow dark mode) and theme-color / manifest theme_color. Their values have to repeat the --color-surface literals, since meta tags cannot read CSS variables. Check the result on a real iPhone in standalone mode in light and dark.
+
+---
+
+author: @claude
+created: 2026-11-01T17:54:00Z
+
+---
+
+From TASK-12: the offline E2E can enter through the form (labels "Amount", "Merchant", "Note"; buttons "Add expense" / "Add income" / "Add transfer"); it needs a cached account, so seed IndexedDB or let a first online pull run. Add to the iPhone checklist: after "Add expense" and after an operator button, the decimal keyboard stays open (focus returns to the amount after an await, outside the tap, and iOS may refuse to reopen the keyboard there).
 
 ---
 <!-- COMMENTS:END -->

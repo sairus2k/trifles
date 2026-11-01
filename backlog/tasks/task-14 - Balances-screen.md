@@ -4,7 +4,7 @@ title: Balances screen
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T16:59:00Z'
+updated_date: '2026-11-01T17:54:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -47,6 +47,15 @@ created: 2026-11-01T16:50:00Z
 ---
 
 From TASK-11: the main screen is the `fallback` of the `<Show>` in `src/app.tsx`; Settings replaces it on first run, from the header Settings button and when sync is paused (`pausedAt` in meta). The header there also holds the "Sync paused" button. Build this screen inside that fallback rather than replacing `App`, and keep the header. Browser component tests share the app `db` (files run one at a time) and need `afterEach(cleanup)`, see `src/app.browser.test.tsx`.
+
+---
+
+author: @claude
+created: 2026-11-01T17:54:00Z
+
+---
+
+From TASK-12: `amountScale(currency)` in src/domain/currency.ts is the precision of an entered amount (Sure `default_precision`, capped at 4), not the `minor_unit_conversion` that `balance_cents` and `toCents(delta, scale)` need: they differ for MGA/MRU (5, not a power of 10) and crypto (BTC 10^8, ETH 10^18). Add a separate mapping for balances from the same config/currencies.yml.
 
 ---
 <!-- COMMENTS:END -->

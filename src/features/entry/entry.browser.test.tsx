@@ -154,6 +154,8 @@ test("a transfer from an account with no same-currency peer cannot be sent", asy
 
 test("the operator row builds an expression that is evaluated on submit", async () => {
   await renderEntry();
+  // Phones show the decimal keyboard, which has no operators.
+  expect(amountField().inputMode).toBe("decimal");
   await userEvent.click(amountField());
   await userEvent.keyboard("120");
   await userEvent.click(screen.getByRole("button", { name: "plus" }));
