@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T19:11:00Z'
+updated_date: '2026-11-01T19:30:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -29,10 +29,10 @@ The app is used from the phone home screen, often with no connection. When it is
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The manifest is a static `public/manifest.webmanifest` and the service worker is hand-written (`src/sw.ts`, no `vite-plugin-pwa`, Workbox or Serwist); `scope` and `start_url` are the path the app is served from
-- [ ] #2 E2E: install the service worker → `context.setOffline(true)` → reload → the app loads
-- [ ] #3 E2E: enter a transaction offline → pending row → back online → synced
-- [ ] #4 The build loads no third-party or CDN scripts
+- [x] #1 The manifest is a static `public/manifest.webmanifest` and the service worker is hand-written (`src/sw.ts`, no `vite-plugin-pwa`, Workbox or Serwist); `scope` and `start_url` are the path the app is served from
+- [x] #2 E2E: install the service worker → `context.setOffline(true)` → reload → the app loads
+- [x] #3 E2E: enter a transaction offline → pending row → back online → synced
+- [x] #4 The build loads no third-party or CDN scripts
 <!-- AC:END -->
 
 ## Definition of Done
@@ -84,6 +84,15 @@ Decision 2026-11-01 (prototypes of Serwist and a hand-written worker, both passe
 - install: cache.addAll with `cache: 'reload'` + skipWaiting; activate: delete other `shell-*` caches + clients.claim; fetch: only GET; navigations inside scope (except `api/`) → cached index.html; precached URLs → cache; everything else (Sure API, other origins) → network untouched.
 - Register in main.tsx only in PROD with `BASE_URL + 'sw.js'` and scope BASE_URL.
 - Useful E2E cases beyond the AC: offline deep link falls back to the shell; offline fetch to /api/... is a network error (not index.html); rebuild with a new build id → app updates after reloads. Not verified in the prototype: base path other than '/', real iOS Safari.
+
+Implemented 2026-11-01 (commits 9c70fe5..2e70572, plus 7965832 fixing a flaky recent.browser test the hook hit).
+Evidence: npm run test:e2e 12/12, three runs in a row; npm test 398/398.
+- AC #1: public/manifest.webmanifest (start_url/scope "./"), src/sw.ts + sw-plugin.ts, no PWA dependency; e2e/sub-path.spec.ts proves scope, start_url, manifest and icons resolve to /quick/ and the root stays with the network.
+- AC #2, #3: e2e/pwa.spec.ts. The offline entry test reloads offline before entering, checks "Pending" and the "≈" balance, then the fake Sure receives the POST and both marks go.
+- AC #4: e2e/pwa.spec.ts (only the app origin after the worker is installed, PRECACHE all relative) plus the existing e2e/style.spec.ts.
+- Mutation checks: no registration → all four pwa tests fail; probe without mode "no-cors" → cors.spec fails; activate keeping old caches → update.spec fails.
+- sw.js is 1.7 kB unminified. vite.config.ts imports ./sw-plugin.ts with the extension (Vite's native config loader warns otherwise), hence allowImportingTsExtensions in tsconfig.json.
+Open: DoD #1, the iPhone checklist, needs the build on HTTPS; there is no deploy task yet.
 <!-- SECTION:NOTES:END -->
 
 ## Comments
