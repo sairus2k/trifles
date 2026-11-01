@@ -1,11 +1,11 @@
 ---
 id: TASK-12
 title: 'Entry form: expense, income and transfer'
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T17:43:00Z'
+updated_date: '2026-11-01T17:55:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -26,12 +26,12 @@ The main job of the app: capture a transaction in under five seconds, even offli
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tabs switch between Expense, Income and Transfer; Transfer asks for source and destination accounts
-- [ ] #2 The amount field uses `inputmode="decimal"`, has an on-screen `+ − × ÷` row and evaluates the expression on submit
-- [ ] #3 After submit, amount and note are cleared, account and category are kept, and focus returns to the amount
-- [ ] #4 Merchant autocomplete suggests names from history and pre-fills the category most often used with that merchant
-- [ ] #5 Submitting writes to the outbox and works offline
-- [ ] #6 Component tests cover sign per tab, calculator, sticky account/category and merchant pre-fill
+- [x] #1 Tabs switch between Expense, Income and Transfer; Transfer asks for source and destination accounts
+- [x] #2 The amount field uses `inputmode="decimal"`, has an on-screen `+ − × ÷` row and evaluates the expression on submit
+- [x] #3 After submit, amount and note are cleared, account and category are kept, and focus returns to the amount
+- [x] #4 Merchant autocomplete suggests names from history and pre-fills the category most often used with that merchant
+- [x] #5 Submitting writes to the outbox and works offline
+- [x] #6 Component tests cover sign per tab, calculator, sticky account/category and merchant pre-fill
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -83,6 +83,17 @@ AC map: #1 → 3, 4; #2 → 2, 3, 4; #3 → 3, 4; #4 → 3, 4; #5 → 3, 4; #6 �
 Out of scope: date field; suggesting names typed without a merchant; creating merchants; editing entries and the pending list (TASK-13); balances and pending deltas (TASK-14); cross-currency transfers; tags.
 <!-- SECTION:PLAN:END -->
 
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deviations from the plan:
+- The account is stored in meta when it is chosen, not on submit, so it survives a restart even before the first entry. "From" on the Transfer tab is session-only and does not change it.
+- The suggestion list stays open on blur: closing it on blur moved the submit button out from under the pointer (caught by a component test). A pick, Escape, a submit, or typing a known name in full closes it. Typing a known name in full (exact, not trimmed, so "Lidl " can go on to "Lidl Express") picks it and pre-fills its category.
+- Added `test: check the amount field asks for the decimal keyboard` for AC #2.
+
+Verification (2026-11-01): entry.browser.test.tsx 18 tests, app.browser.test.tsx 5; full suite green in the pre-commit hook; E2E 4/4. Mutation check (each caught): exact-name trim, sign per tab, amount reset, per-tab category, remembered account, refocus. Screenshots at 390 px in light and dark schemes checked by eye (tabs, operator row, suggestion list, error, transfer).
+<!-- SECTION:NOTES:END -->
+
 ## Comments
 
 <!-- COMMENTS:BEGIN -->
@@ -104,3 +115,20 @@ From TASK-11: the main screen is the `fallback` of the `<Show>` in `src/app.tsx`
 
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added the entry form (src/features/entry/entry.tsx), mounted under the header of the main screen.
+
+- Tabs Expense / Income / Transfer. Expense and Income enqueue a `create` with `nature` from the tab; Transfer enqueues a `transfer` between "From" and "To", where "To" lists only other active accounts in the same currency (cross-currency is out of v1). Legs are named "<from> → <to>".
+- Amount: `inputmode="decimal"`, an on-screen `+ − × ÷` row that inserts at the caret without taking the focus, evaluated on submit with `evaluateAmount` at the account currency precision. Errors show under the field and write nothing.
+- After submit amount, merchant and note clear, account and category stay (category per tab), focus returns to the amount. The account is kept in meta `entryAccountId` across restarts; the category is not (user decision).
+- Merchant autocomplete from Sure merchants: those with history first (count, then recency), prefix matches first; a pick or a full known name pre-fills the most used category. A known name is sent as `merchant_id`; any other text goes into `name` only, since Sure has no API to create a merchant. An empty name falls back to the category, then the tab name.
+- src/domain/currency.ts `amountScale()`: Sure `default_precision` capped at 4.
+- README: POST /merchants is a CSV import; `entryAccountId` in meta; currency.ts in the structure.
+
+Checks: component tests for sign per tab, calculator, precision, errors, sticky account/category, autocomplete and pre-fill, offline queueing; full suite, typecheck, lint, format and E2E pass.
+
+Risks and follow-ups: whether iOS keeps the decimal keyboard open after an operator tap and after submit (focus returns after an await) needs the iPhone check (noted on TASK-15). Names typed without a known merchant are not suggested later (user decision). Balance precision for TASK-14 differs from `amountScale` (noted there).
+<!-- SECTION:FINAL_SUMMARY:END -->
