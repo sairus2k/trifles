@@ -48,11 +48,13 @@ export function fromCents(cents: number, scale: number): string {
  */
 export function formatAmount(decimal: string, currency: string, locale?: string): string {
   const digits = amountScale(currency);
-  return new Intl.NumberFormat(locale, {
-    style: "currency",
-    currency,
+  // Intl accepts only three-letter codes and throws a RangeError on Sure's DOGE, USDC and USDT.
+  const iso = /^[A-Za-z]{3}$/.test(currency);
+  const text = new Intl.NumberFormat(locale, {
+    ...(iso ? { style: "currency", currency } : {}),
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
     // `|| 0` turns "-0" into 0, which Intl would print as "-€0.00".
   }).format(Number(decimal) || 0);
+  return iso ? text : `${text} ${currency}`;
 }

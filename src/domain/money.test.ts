@@ -82,4 +82,12 @@ describe("formatAmount", () => {
   ])("%s %s → %s, with the digits Sure uses for the currency", (decimal, currency, expected) => {
     expect(formatAmount(decimal, currency, "en-US")).toBe(expected);
   });
+
+  test.each([
+    ["1.5", "USDC", "1.50 USDC"],
+    ["-1234.5", "USDT", "-1,234.50 USDT"],
+    ["0.12345", "DOGE", "0.1235 DOGE"],
+  ])("%s %s → %s, with the code after the number Intl rejects", (decimal, currency, expected) => {
+    expect(formatAmount(decimal, currency, "en-US")).toBe(expected);
+  });
 });
