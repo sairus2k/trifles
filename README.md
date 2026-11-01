@@ -277,14 +277,16 @@ orval's generated MSW handlers (`mock: true`) are useful for dev mode and compon
 
 ## Getting started
 
-> Commands below are the target setup; the repository is not scaffolded yet.
+Requires Node.js 22.18 or newer.
 
 ```sh
 npm install
-npm run gen:api      # orval: spec/sure-openapi.yaml → src/api/generated
+npx playwright install chromium   # browser for component and E2E tests
+npm run gen:api      # orval: spec/sure-openapi.yaml → src/api/generated (not added yet)
 npm run dev          # Vite dev server
-npm test             # Vitest
-npm run test:e2e     # Playwright
+npm run typecheck    # tsc (TypeScript 7)
+npm test             # Vitest: Node and browser-mode projects
+npm run test:e2e     # Playwright against `vite preview`
 npm run build        # static build in dist/
 ```
 
