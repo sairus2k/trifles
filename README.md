@@ -233,7 +233,7 @@ export default defineConfig({
 
 Each generated function resolves to `{ status, data, headers }`, typed as a union of the statuses **the spec declares** for that operation (for `POST /transactions`: `200 | 201 | 422`). The mutator (`src/api/http.ts`) makes that type honest:
 
-- It adds the instance URL (set with `configureSure({ baseUrl, apiKey })`) and `X-Api-Key`.
+- It adds the instance URL (set with `configureSure({ baseUrl, apiKey })`) and `X-Api-Key`. A request can pass its own `settings` instead, so Settings checks a key before saving it without touching the engine's.
 - It reads the body as text and checks the status and `content-type` **before** parsing JSON.
 - It returns JSON responses with a 2xx or 4xx status, except 401 and 429, as `{ status, data, headers }`. This includes `422` with the server message.
 - It throws `SureError` with `kind` and `status` for everything else: `http` for 401, 429 and 5xx (whatever the body, since a proxy may answer with HTML and the spec rarely declares them), `not-json` for a non-JSON or malformed body (for example a proxy login page with `200`), `network` when the request or body read fails, and `not-configured` without settings.

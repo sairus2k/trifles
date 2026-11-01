@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { postApiV1Transactions } from "./generated/sure";
+import { getApiV1Accounts, postApiV1Transactions } from "./generated/sure";
 import { SureError, configureSure, sureFetch } from "./http";
 
 type Result = { status: number; data: unknown; headers: Headers };
@@ -122,6 +122,36 @@ describe("sureFetch", () => {
 
     expect(error.kind).toBe("not-configured");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("settings passed with a request", () => {
+  const candidate = { baseUrl: "https://other.example", apiKey: "candidate-key" };
+
+  test("are used instead of the configured ones, which stay in place", async () => {
+    fetchMock.mockImplementation(async () => json(200, { accounts: [] }));
+
+    await getApiV1Accounts({ per_page: 1 }, { settings: candidate });
+    await getApiV1Accounts();
+
+    const [[url, init], [nextUrl, nextInit]] = fetchMock.mock.calls as [
+      Parameters<typeof fetch>,
+      Parameters<typeof fetch>,
+    ];
+    expect(url).toBe("https://other.example/api/v1/accounts?per_page=1");
+    expect(new Headers(init?.headers).get("X-Api-Key")).toBe("candidate-key");
+    expect(init).not.toHaveProperty("settings");
+    expect(nextUrl).toBe("https://sure.example/api/v1/accounts");
+    expect(new Headers(nextInit?.headers).get("X-Api-Key")).toBe("secret-key");
+  });
+
+  test("work when nothing is configured", async () => {
+    configureSure(undefined);
+    fetchMock.mockResolvedValue(json(200, { accounts: [] }));
+
+    const result = await getApiV1Accounts(undefined, { settings: candidate });
+
+    expect(result.status).toBe(200);
   });
 });
 

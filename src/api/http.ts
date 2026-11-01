@@ -32,20 +32,30 @@ function isJson(contentType: string | null) {
   return contentType !== null && /^application\/([\w.+-]+\+)?json\b/i.test(contentType);
 }
 
+export interface SureRequestInit extends RequestInit {
+  /** Overrides the configured settings for this request, so Settings can check a key before saving it. */
+  settings?: SureSettings;
+}
+
 /** orval mutator: the generated client calls it with a path such as `/api/v1/transactions`. */
-export async function sureFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  if (!settings) {
+export async function sureFetch<T>(
+  path: string,
+  { settings: own, ...init }: SureRequestInit = {},
+): Promise<T> {
+  const target = own ?? settings;
+  if (!target) {
     throw new SureError("not-configured", "The Sure instance URL and API key are not set");
   }
+  const { baseUrl, apiKey } = target;
   const method = init.method ?? "GET";
   const headers = new Headers(init.headers);
-  headers.set("X-Api-Key", settings.apiKey);
+  headers.set("X-Api-Key", apiKey);
 
   let res: Response;
   let body: string;
   try {
     // Concatenate rather than `new URL(path, base)` so an instance served under a subpath keeps it.
-    res = await fetch(settings.baseUrl.replace(/\/+$/, "") + path, { ...init, headers });
+    res = await fetch(baseUrl.replace(/\/+$/, "") + path, { ...init, headers });
     body = await res.text();
   } catch (cause) {
     throw new SureError("network", `${method} ${path} failed to complete`, undefined, { cause });
