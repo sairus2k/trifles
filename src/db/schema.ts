@@ -85,3 +85,6 @@ db.version(1).stores({
   outbox: "clientId",
   meta: "key",
 });
+
+// clientId is a random UUID, so queue order comes from createdAt.
+db.version(2).stores({ outbox: "clientId, createdAt" });

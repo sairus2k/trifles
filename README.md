@@ -68,15 +68,15 @@ Sure API (/api/v1, X-Api-Key)
 
 ### Local schema (Dexie)
 
-| Table          | Key            | Notes                                                                                         |
-| -------------- | -------------- | --------------------------------------------------------------------------------------------- |
-| `accounts`     | `id`           | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt` |
-| `categories`   | `id`           | `name`, `color`, `icon` (Sure no longer has category classification)                          |
-| `merchants`    | `id`           | `name`                                                                                        |
-| `transactions` | `id`           | Server transactions; index on `date` and `accountId`                                          |
-| `suggestions`  | `merchantName` | `merchantId`, `categoryId`, `count`, `lastUsedAt`                                             |
-| `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`              |
-| `meta`         | `key`          | Instance URL, API key, last pull timestamps                                                   |
+| Table          | Key            | Notes                                                                                                                |
+| -------------- | -------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `accounts`     | `id`           | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt`                        |
+| `categories`   | `id`           | `name`, `color`, `icon` (Sure no longer has category classification)                                                 |
+| `merchants`    | `id`           | `name`                                                                                                               |
+| `transactions` | `id`           | Server transactions; index on `date` and `accountId`                                                                 |
+| `suggestions`  | `merchantName` | `merchantId`, `categoryId`, `count`, `lastUsedAt`                                                                    |
+| `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`; index on `createdAt` (queue order) |
+| `meta`         | `key`          | Instance URL, API key, last pull timestamps                                                                          |
 
 Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pending | sending | failed | done`.
 

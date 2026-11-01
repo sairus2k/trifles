@@ -22,7 +22,7 @@ test("tables and keys match README → Local schema", async () => {
     merchants: { key: "id", indexes: [] },
     transactions: { key: "id", indexes: ["accountId", "date"] },
     suggestions: { key: "merchantName", indexes: [] },
-    outbox: { key: "clientId", indexes: [] },
+    outbox: { key: "clientId", indexes: ["createdAt"] },
     meta: { key: "key", indexes: [] },
   });
 });
