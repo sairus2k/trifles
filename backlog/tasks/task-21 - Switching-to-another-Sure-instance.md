@@ -1,11 +1,11 @@
 ---
 id: TASK-21
 title: Switching to another Sure instance
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T16:50:00Z'
-updated_date: '2026-11-01T20:42:00Z'
+updated_date: '2026-11-01T20:56:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -25,10 +25,10 @@ Settings (TASK-11) saves a new URL like a new key: it lifts the pause and nothin
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Saving a URL different from the saved one is treated as a switch; saving a new key for the same URL keeps the cache and the outbox
-- [ ] #2 After a switch the app shows no account, transaction, category, merchant or suggestion from the old instance
-- [ ] #3 Unsent records of the old instance are never sent to the new one without an explicit choice by the user, who is told how many entries are affected
-- [ ] #4 Component tests cover a key rotation, a switch with an empty outbox and a switch with unsent records
+- [x] #1 Saving a URL different from the saved one is treated as a switch; saving a new key for the same URL keeps the cache and the outbox
+- [x] #2 After a switch the app shows no account, transaction, category, merchant or suggestion from the old instance
+- [x] #3 Unsent records of the old instance are never sent to the new one without an explicit choice by the user, who is told how many entries are affected
+- [x] #4 Component tests cover a key rotation, a switch with an empty outbox and a switch with unsent records
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -70,3 +70,29 @@ Rules:
 
 Not changed: the schema (no instance id stored per record), checkConnection, e2e. Detecting an alias automatically (cached account ids found on the new URL) is left out: the description asks to tell the user instead, and the "same Sure" choice covers it.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deviations from the plan:
+- switchInstance() clears the whole of meta before storing the settings instead of deleting entryAccountId alone: everything else in meta (the pause, the entry form's account) belongs to the old instance. There is no separate countUnsent(): the switch counts under the lock and refuses with the count, and the UI asks on that refusal.
+- The lock callback in switchInstance() is async and awaits the Dexie transaction. Returning db.transaction() directly hands Node's LockManager a DexiePromise, which it does not wait for: the lock was released before the commit and a queued run read the old settings (probed with a standalone script; caught by the engine test).
+- Race (c) cannot be reproduced through Dexie in one Node process, since this tab's liveQuery hears of the write before the queued run gets the lock. The engine test writes meta straight to IndexedDB under the lock, as another tab whose notification is late, and fails when the settings are taken from the liveQuery instead of read under the lock (mutation-checked).
+- The pull hang test lives in pullReference (one GET held); all five pull GETs share the timeout() helper.
+Verification: npm test 438 passed, npm run test:e2e 12 passed, lint, format and typecheck clean (pre-commit hook on e5e2e53 and 27f39f0).
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Saving another Sure URL is now a switch; a new key for the same URL keeps everything (AC #1).
+
+- `sameInstance()` compares URLs after normalisation (trailing slashes, host case, default port). `switchInstance()` holds the sync Web Lock, so it waits for any tab's run against the old instance, and in one Dexie transaction clears accounts, categories, merchants, transactions, suggestions, the outbox and the rest of meta before storing the settings (AC #2).
+- With records not `done` it refuses and returns their count. Settings then says "N entries have not been sent to <old host>" and offers to delete them and switch, to keep everything for the same Sure under another address (the records then go to the new URL), or to cancel. The count is taken again under the lock, so a record another tab adds meanwhile is never dropped unseen (AC #3). A hint under the URL field says what another address does.
+- The engine reads the settings from meta under the lock, so a run queued behind another tab's switch uses the new URL and key, and it pulls reference data again whenever the URL changes.
+- Separate fix: pull GETs time out after 30 s, so a hanging old instance cannot hold the lock (and the switch) forever.
+
+Tests (AC #4): settings.browser.test.tsx `another URL` (key rotation; switch with an empty outbox; switch with unsent records → Delete; Same Sure; Cancel); app.browser.test.tsx `switching to another Sure leaves nothing of the old one on screen`; engine.test.ts `switching instance` (5 tests, two fakes); settings.test.ts (`sameInstance`, `switchInstance`); pull.test.ts timeout. npm test 438 passed, e2e 12 passed.
+
+Risk: choosing "same Sure" for a different instance sends the records there; creates and transfers then fail as "account no longer in Sure", updates fail with 404, and a delete's 404 counts as done.
+<!-- SECTION:FINAL_SUMMARY:END -->
