@@ -1,11 +1,11 @@
 ---
 id: TASK-16
 title: Contract tests against a real Sure in Docker
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T19:41:00Z'
+updated_date: '2026-11-01T19:58:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -23,16 +23,16 @@ The fake encodes assumptions about Sure behaviour that must hold on the real ins
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A script starts Sure in Docker at the version pinned in `spec/README.md` and runs the suite
-- [ ] #2 A repeated `external_id` returns `200` with the existing transaction
-- [ ] #3 `nature: "expense"` stores a positive amount
-- [ ] #4 Two opposite transactions between same-currency manual accounts are auto-matched into a transfer
-- [ ] #5 Balance update latency after a write is measured and reported
-- [ ] #6 How to run the suite is documented in README
-- [ ] #7 POST /transactions for an unknown account answers `500` (TASK-8 retries it; see TASK-19)
-- [ ] #8 PATCH /transactions/{id} ignores null fields, blank `category_id` / `merchant_id` and `currency`, and clears notes with `""`
-- [ ] #9 PATCH and DELETE of an unknown transaction answer `404 not_found`
-- [ ] #10 A read-only API key answers `403` to POST /transactions
+- [x] #1 A script starts Sure in Docker at the version pinned in `spec/README.md` and runs the suite
+- [x] #2 A repeated `external_id` returns `200` with the existing transaction
+- [x] #3 `nature: "expense"` stores a positive amount
+- [x] #4 Two opposite transactions between same-currency manual accounts are auto-matched into a transfer
+- [x] #5 Balance update latency after a write is measured and reported
+- [x] #6 How to run the suite is documented in README
+- [x] #7 POST /transactions for an unknown account answers `500` (TASK-8 retries it; see TASK-19)
+- [x] #8 PATCH /transactions/{id} ignores null fields, blank `category_id` / `merchant_id` and `currency`, and clears notes with `""`
+- [x] #9 PATCH and DELETE of an unknown transaction answer `404 not_found`
+- [x] #10 A read-only API key answers `403` to POST /transactions
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -75,6 +75,9 @@ Research (Sure 131e786, local checkout ../sure):
 
 <!-- SECTION:NOTES:BEGIN -->
 Decision (user, 2026-11-01): Sure starts from a Vitest globalSetup in vitest.contract.config.ts (`npm run test:contract`), not a shell script.
+
+Deviations from the plan: seed.rb creates a third account, Latency, written only by the latency test, so another test's background recalculation cannot move the balance it waits for. vitest.contract.config.ts pins reporters: ["default"]: under an AI agent (AI_AGENT / CLAUDECODE set) Vitest 5 picks a reporter that hides console output of passing tests, which hid the latency report.
+Run on 2026-11-01 against sha-131e786b9373bea821b2be16e35fd8ba89d8af66: 4 files, 10 tests passed in about 17 s including stack start and teardown; no container left behind. Real Sure matched the fake on every check, so the fake and README needed no fix. Balance update latency over 5 writes: min 46 ms, median 135 ms, max 148 ms (polled every 100 ms).
 <!-- SECTION:NOTES:END -->
 
 ## Comments
@@ -89,3 +92,11 @@ From TASK-11: Settings tells a read-only key apart with `DELETE /api/v1/transact
 
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added a contract suite that runs the fake's assumptions against a real Sure. `npm run test:contract` (vitest.contract.config.ts) starts, from a Vitest globalSetup, the Sure image tagged with the commit pinned in spec/README.md plus its Sidekiq worker, Postgres and Redis (test/contract/compose.yml), seeds a user, read_write and read keys, three manual USD accounts, a category and a merchant with rails runner (test/contract/seed.rb), and removes the stack afterwards (KEEP_SURE=1 keeps it). It covers every acceptance criterion: idempotent creates, amount signs, transfer auto-matching, PATCH field rules, 404 not_found, 500 for an unknown account, 403 for a read key on create, the Settings read-only probe from TASK-11, and balance update latency (min/median/max over five writes). The contract files sit outside the node project's include, so npm test and the pre-commit hook never start Docker. README (Testing, Getting started, Project structure, Updating the Sure spec) and spec/README.md document how to run it.
+Verification: 10/10 passing against sha-131e786; real Sure matched the fake everywhere. Latency median about 135 ms.
+Risks: the run needs Docker and network access to ghcr.io; the image is only published for Sure main commits and tags, so a spec pinned to an unpublished commit cannot be tested.
+<!-- SECTION:FINAL_SUMMARY:END -->
