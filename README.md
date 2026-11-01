@@ -82,8 +82,10 @@ Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pendi
 
 ### Sync engine rules
 
-- **Triggers:** app start, `online`, `visibilitychange → visible`, after every enqueue, and a timer while the app is open. Do **not** rely on the Background Sync API (not available on iOS).
-- **One worker:** wrap the push loop in `navigator.locks.request('outbox', …)` so only one tab processes the queue.
+- **Triggers:** app start, `online`, `visibilitychange → visible`, a 60 s timer while the app is visible, after every outbox write (`onOutboxWrite`), and when a head that is backing off becomes due. Do **not** rely on the Background Sync API (not available on iOS).
+- **One worker:** each run holds `navigator.locks.request('outbox', …)`, so only one tab processes the queue. Within a tab, triggers that fire while a run is in flight merge into one queued run. A record still `sending` when a run takes the lock was left by a tab that closed mid-request: it goes back to `pending` with the attempt counted, since the request may have reached Sure.
+- **Offline:** no run starts while `navigator.onLine` is `false`, so an entry made offline costs no attempt and stays editable. `online` ends every backoff before its run: the failures were most likely the missing connection.
+- **Pause:** a rejected key (`401`, or `403` from a read-only key) on push or pull sets `syncPausedAt` in `meta`, and no run starts until `saveSettings()` stores new settings and clears it. Kept in `meta`, the pause holds across reloads and tabs, so a reload spends no request on a rejected key.
 - **Sequential:** records are sent one at a time, in creation order. A head record that is backing off or still `sending` holds the rest of the queue; `failed` and `done` records do not.
 - **Idempotency:** every create sends `external_id` (the client UUID) and `source: "sure-quick-entry"`. Sure returns `200` with the existing transaction if that account already has one with that pair (the key is scoped to the account), so **retrying after any ambiguous failure is safe**.
 - **Error handling:**
@@ -94,7 +96,7 @@ Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pendi
   - A transfer resends both legs on every attempt; Sure answers `200` for the leg it already has.
 - **Editing pending records:** editing or deleting a record that has not been sent yet rewrites or removes the outbox entry instead of queuing a second operation. This is allowed only while the write certainly is not on the server: a `create` or `transfer` never attempted, or a `create` that failed with a definitive answer (`422`, `404`). Anything that may have reached Sure (`sending`, retrying after an attempt, a failed transfer with one leg possibly sent, `done`) is locked: a retry with the same `external_id` would answer `200` with the old values, and a changed account would create a second transaction. Once `done`, an edit goes out as an `update`.
 - **Editing synced transactions** enqueues `update` (full values; `PATCH` cannot change the account) or `delete`. A queued `update` or `delete` for the same transaction is overwritten instead of queuing another one, unless it is already `sending`.
-- **Pull:** `pullReference()` (accounts, categories and merchants, every page) on every online start; `pullRecent()` (accounts and the latest 100 transactions) after every successful push and on demand. Each pull fetches everything first and replaces the cached tables in one Dexie transaction, so a failed pull leaves the cache as it was.
+- **Pull:** a run pushes first, then pulls. `pullReference()` (accounts, categories and merchants, every page) runs once per session, on the first online run; `pullRecent()` (accounts and the latest 100 transactions) runs after a push that sent something and on every trigger except a write or a backoff wake-up. A failed pull is left to the next trigger. Each pull fetches everything first and replaces the cached tables in one Dexie transaction, so a failed pull leaves the cache as it was.
 
 ### Transfers
 
@@ -178,6 +180,7 @@ src/
     outbox.ts              enqueue, edit and remove pending writes; claim next, mark done/failed/retry
     push.ts                send loop, backoff, idempotency
     pull.ts                reference data and recent transactions
+    settings.ts            instance URL, API key and the sync pause, kept in meta
     engine.ts              triggers, Web Lock, lifecycle
   domain/
     calc.ts                amount expression parser (no eval)
@@ -270,7 +273,7 @@ const recent = createLiveQuery(accountId, (id) =>
 
 Effort follows risk: most of the complexity is in the sync engine, so most of the tests are there.
 
-1. **Sync engine** in the Node project (Vitest + `fake-indexeddb` + `msw/node` + the stateful fake in `test/fake-sure/`). The engine is plain TS with no Solid, and every Node test file gets its own `fake-indexeddb`, so the app's shared `db` needs no per-file isolation. The fake answers `201` for a new account + `external_id` + `source` and `200` with the existing transaction for a repeat, moves the account balance and `updated_at` (whole seconds, like Sure) after a write or holds them with `pauseAccountSync()`, and `failNext(route, fault)` makes the next request to a route answer a status (`401`, `422`, `500`…), drop the connection, apply the write and lose the response, or never answer. `PATCH` and `DELETE /transactions/{id}` follow Sure's update rules (blank fields are kept) and answer `404` for an unknown transaction; a create for an unknown account answers `500`, as Sure does. Required scenarios:
+1. **Sync engine** in the Node project (Vitest + `fake-indexeddb` + `msw/node` + the stateful fake in `test/fake-sure/`). The engine is plain TS with no Solid, and every Node test file gets its own `fake-indexeddb`, so the app's shared `db` needs no per-file isolation. The fake answers `201` for a new account + `external_id` + `source` and `200` with the existing transaction for a repeat, moves the account balance and `updated_at` (whole seconds, like Sure) after a write or holds them with `pauseAccountSync()`, and `failNext(route, fault)` makes the next request to a route answer a status (`401`, `422`, `500`…), drop the connection, apply the write and lose the response, or never answer. `PATCH` and `DELETE /transactions/{id}` follow Sure's update rules (blank fields are kept) and answer `404` for an unknown transaction; a create for an unknown account answers `500`, as Sure does. The engine's triggers run here too: `window`, `document` and `navigator.onLine` are stubbed with `vi.stubGlobal`, and fake timers cover `setTimeout` and `setInterval` (fake-indexeddb schedules with `setImmediate`, which stays real). Browser mode is not an option for sync tests: browser test files share one origin and run in parallel, and `schema.browser.test.tsx` deletes the app's `db`. The E2E tests cover real `online` and offline. Required scenarios:
    - request reaches the server, response is lost → retry → `200` → no duplicate;
    - `422` → `failed`, the queue continues;
    - `401` → the queue pauses, no retry loop;
