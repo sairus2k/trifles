@@ -251,16 +251,23 @@ async function add(write: PendingWrite | SyncedWrite): Promise<string> {
   return clientId;
 }
 
-// Editable only while the write certainly is not on the server: never attempted, or a single create
-// rejected for good (422/404). A failed transfer may have one leg on the server already.
-async function editable(clientId: string): Promise<OutboxRecord> {
-  const record = await db.outbox.get(clientId);
+/**
+ * Whether `editPending` and `removePending` accept the record: only while the write certainly is not
+ * on the server, that is never attempted, or a single create rejected for good (422/404). A failed
+ * transfer may have one leg on the server already.
+ */
+export function isEditable(record: OutboxRecord): boolean {
   const untouched =
-    record?.status === "pending" &&
+    record.status === "pending" &&
     record.attempts === 0 &&
     (record.op === "create" || record.op === "transfer");
-  const rejected = record?.status === "failed" && record.op === "create";
-  if (!record || !(untouched || rejected)) throw new OutboxLockedError(clientId);
+  const rejected = record.status === "failed" && record.op === "create";
+  return untouched || rejected;
+}
+
+async function editable(clientId: string): Promise<OutboxRecord> {
+  const record = await db.outbox.get(clientId);
+  if (!record || !isEditable(record)) throw new OutboxLockedError(clientId);
   return record;
 }
 
