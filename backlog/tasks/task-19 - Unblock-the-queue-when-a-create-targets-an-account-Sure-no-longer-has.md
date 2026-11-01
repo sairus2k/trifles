@@ -1,9 +1,11 @@
 ---
 id: TASK-19
 title: Unblock the queue when a create targets an account Sure no longer has
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-11-01T15:39:00Z'
+updated_date: '2026-11-01T20:18:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -28,3 +30,34 @@ Sure 131e786 answers `500 internal_server_error` (not 404) to `POST /api/v1/tran
 - [ ] #2 A transient 500 for an account that does exist is still retried
 - [ ] #3 Tested against the fake
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Research (Sure 131e786, local checkout ../sure):
+- `TransactionsController#create` looks the account up with `family.accounts.writable_by(user).find(id)` (owner, or a share with `full_control`). `RecordNotFound` falls into the method's own `rescue => e` and renders `500 { error: "internal_server_error", message: "An unexpected error occurred" }`: the body is the same as for any other exception, so the 500 alone cannot tell a missing account from a transient failure.
+- `GET /api/v1/accounts/{id}` (`AccountsController#show`) looks it up with `accessible_by(user)` (owner or any share), filtered to `draft`/`active` unless `include_disabled=true`, and answers `404 { error: "not_found", message: "Account not found" }` for an unknown, deleted or unshared account. It is in the vendored spec, so `getApiV1AccountsId(id, { include_disabled: true })` is already generated and returns 404 in the union.
+- Gap: an account shared with the key's user as `read_only` or `read_write` (annotate) is accessible but not writable: `GET` answers 200 and the create still answers 500. No API response exposes the share permission (the account JSON has no such field, no account_shares endpoint), so the app cannot detect it. Such an entry keeps retrying and holds the queue; out of scope here, tracked in TASK-24.
+- Rejected: deciding from the cached `db.accounts` instead of a request. It saves one GET per 500 but trusts a cache that may be stale or empty (a failed or not-yet-run pull), and a wrong "missing" would fail an entry that a retry would have sent.
+- The UI already shows `lastError` under a failed row (`src/features/recent/rows.ts`), a failed `create` is editable (`isEditable`: rejected create), and a failed transfer gets `FAILED_TRANSFER_ERROR` appended and can only be discarded. A create that failed because its account is gone was certainly not applied, so it fits the existing "definitive answer (422, 404)" rule for editing.
+- The fake already answers 500 for an unknown account; `sure.accounts` is the live state array, so a test removes an account by splicing it. It has no `GET /accounts/:id` route yet.
+
+1. `test: answer GET /accounts/{id} in the fake`
+   - test/fake-sure/index.ts: route `GET /api/v1/accounts/:id` (added to `FakeSureRoute`, so `failNext` covers it): the account, or `404 { error: "not_found", message: "Account not found" }`.
+   - test/fake-sure/fake-sure.test.ts: known id → 200 with the account; unknown id → 404 with that body.
+2. `test: contract-test the account lookup for accounts the key cannot reach`
+   - test/contract/seed.rb: a second family member with a manual account of their own, not shared with the key's user.
+   - test/contract/errors.contract.ts: `GET /accounts/{random UUID}` → 404 `not_found`; for the other member's account, `POST /transactions` → 500 and `GET /accounts/{id}?include_disabled=true` → 404. This pins the assumption the push relies on. Check that the existing accounts-list test still sees only the key user's accounts.
+   - Run `npm run test:contract` (needs Docker).
+3. `feat: fail a create whose account Sure no longer has`
+   - src/sync/push.ts, `create()`: when `postApiV1Transactions` throws a `SureError` with status exactly 500, request `getApiV1AccountsId(entry.accountId, { include_disabled: true }, timeout())`. On 404 return a `{ status: 404, data: { error: "not_found", message } }` reply with a message the UI can show (the account was deleted in Sure or is no longer shared with this key); otherwise rethrow the original error, so `attempt()` retries it as before. An error thrown by the lookup itself propagates into the same catch: 401 pauses, 5xx/network/timeout retries. Other 5xx (502/503/504 from a proxy) skip the lookup.
+   - Transfers need no extra code: both legs go through `create()`; a missing `:out` account fails the transfer before the `:in` leg, a missing `:in` account fails it with the `:out` leg already on Sure (the row already says so).
+   - src/sync/push.test.ts:
+     - a create for an account removed from the fake ends `failed` with that message, and the record behind it is sent (AC #1);
+     - a transfer whose `:in` account is gone ends `failed`, the `:out` leg is on the fake once, the next record is sent; a missing `:out` account sends no leg (AC #1);
+     - a 500 for an account that exists is retried with backoff and the lookup was made (AC #2); a 503 makes no lookup;
+     - the lookup failing (500 or dropped) retries the record; the lookup answering 401 pauses the queue;
+     - the failed create stays editable (`isEditable`), so the user can move it to another account.
+   - README.md: Sync engine rules → Error handling (a create's 500 is checked with `GET /accounts/{id}`; 404 → `failed`), Editing pending records (a create failed because its account is gone counts as a definitive answer), Sure API notes → Unknown account on create (what push does now, and the read-only share gap), Testing (the fake's new route, the contract checks).
+4. `chore: finish TASK-19` (check ACs with the test names as evidence, final summary).
+<!-- SECTION:PLAN:END -->
