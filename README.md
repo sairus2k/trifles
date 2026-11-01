@@ -286,6 +286,14 @@ const recent = createLiveQuery(accountId, (id) =>
 - **What a row allows.** An entry that is certainly not on the server (`isEditable()`) is rewritten or removed in the outbox. A synced transaction is edited as a full-value `update` (its account is fixed, and a category or merchant cannot be cleared) and deleted as a `delete`. A synced transfer can only be deleted, leg by leg: a changed leg would no longer match its pair. A failed transfer can only be dismissed, since one leg may be in Sure. Anything retrying, sending, or sent but not pulled yet is locked and says why.
 - **Editor and swipe.** Tapping a row opens the entry form in a `<dialog>` with a date field; an untouched amount is sent as stored, so an edit does not round extra digits. Swiping left uncovers a Delete button; the editor has one too, for keyboards.
 
+### Balances
+
+`src/features/balances/rows.ts` turns the cached accounts and `pendingDeltas()` into the two groups; the header's Balances button swaps it in for the form, which stays mounted so a typed amount survives.
+
+- **Which accounts.** Active ones, by name, split by Sure's `classification`, the same set the form offers. A liability is positive while it is owed, as in Sure. There are no totals: summing accounts in different currencies would need exchange rates.
+- **Exact amounts.** `balance_cents` is the balance times Sure's `minor_unit_conversion` (`minorUnitConversion()`), which is not `amountScale()`: 5 for MGA and MRU, 10^8 for BTC, 10^18 for ETH. `fromMinorUnits()` turns it back into a decimal string. An ETH balance past 2^53 minor units has already lost digits in `JSON.parse`, so it is display-grade only.
+- **Pending delta.** An account with entries Sure has not counted shows `≈` and Sure's balance plus the delta, with Sure's balance and the signed delta under it. The delta is added as decimals (`addDecimals()`), not converted to minor units, which a conversion of 5 would round. It goes away once a pull brings the recalculated balance (see Data flow for a new transaction).
+
 ## Testing
 
 Effort follows risk: most of the complexity is in the sync engine, so most of the tests are there.

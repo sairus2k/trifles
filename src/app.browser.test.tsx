@@ -103,3 +103,30 @@ test("a closed pause leaves a way back, a new key ends it, and the next 401 open
   await pauseSync();
   await settingsHeading();
 });
+
+test("Balances in the header swaps the form for the balances and back, keeping a typed amount", async () => {
+  await saveSettings({ baseUrl: FAKE_SURE_URL, apiKey: "key" });
+  await db.accounts.clear();
+  await db.accounts.put({
+    id: "acc-cash",
+    name: "Cash",
+    currency: "EUR",
+    classification: "asset",
+    balanceCents: 120_000,
+    status: "active",
+    updatedAt: 0,
+  });
+  render(() => <App />);
+  await mainHeading();
+  await userEvent.fill(await screen.findByLabelText("Amount"), "12");
+
+  await userEvent.click(screen.getByRole("button", { name: "Balances" }));
+  expect(await screen.findByRole("region", { name: "Assets" })).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Recent transactions" })).toBeNull();
+  expect(screen.getByLabelText("Amount")).not.toBeVisible();
+
+  await userEvent.click(screen.getByRole("button", { name: "Entry" }));
+  expect(screen.queryByRole("region", { name: "Balances" })).toBeNull();
+  expect(screen.getByLabelText<HTMLInputElement>("Amount").value).toBe("12");
+  expect(screen.getByLabelText("Amount")).toBeVisible();
+});
