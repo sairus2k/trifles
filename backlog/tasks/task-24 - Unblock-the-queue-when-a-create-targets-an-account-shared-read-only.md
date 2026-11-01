@@ -4,6 +4,7 @@ title: Unblock the queue when a create targets an account shared read-only
 status: To Do
 assignee: []
 created_date: '2026-11-01T20:18:00Z'
+updated_date: '2026-11-01T20:23:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -27,3 +28,9 @@ Sure 131e786 answers `500` to `POST /api/v1/transactions` for an account the key
 - [ ] #2 A transient 500 for a writable account is still retried
 - [ ] #3 Tested against the fake
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From TASK-19 seeding: Account.create_and_sync calls auto_share_with_family! when family.default_account_sharing is "shared" (the default): other members get read_write, guests read_only. Neither is writable_by, so in any multi-member family every account owned by someone else is listed in the entry form and a create to it answers 500 forever. Consider raising the priority.
+<!-- SECTION:NOTES:END -->

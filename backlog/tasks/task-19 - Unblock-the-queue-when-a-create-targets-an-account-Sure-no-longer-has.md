@@ -1,11 +1,11 @@
 ---
 id: TASK-19
 title: Unblock the queue when a create targets an account Sure no longer has
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T15:39:00Z'
-updated_date: '2026-11-01T20:18:00Z'
+updated_date: '2026-11-01T20:23:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -26,9 +26,9 @@ Sure 131e786 answers `500 internal_server_error` (not 404) to `POST /api/v1/tran
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A create (or transfer leg) for an account Sure does not have ends as `failed` with a message the UI can show, and the records behind it are sent
-- [ ] #2 A transient 500 for an account that does exist is still retried
-- [ ] #3 Tested against the fake
+- [x] #1 A create (or transfer leg) for an account Sure does not have ends as `failed` with a message the UI can show, and the records behind it are sent
+- [x] #2 A transient 500 for an account that does exist is still retried
+- [x] #3 Tested against the fake
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -60,4 +60,25 @@ Research (Sure 131e786, local checkout ../sure):
      - the failed create stays editable (`isEditable`), so the user can move it to another account.
    - README.md: Sync engine rules → Error handling (a create's 500 is checked with `GET /accounts/{id}`; 404 → `failed`), Editing pending records (a create failed because its account is gone counts as a definitive answer), Sure API notes → Unknown account on create (what push does now, and the read-only share gap), Testing (the fake's new route, the contract checks).
 4. `chore: finish TASK-19` (check ACs with the test names as evidence, final summary).
+
+Deviation in step 3: a lookup that fails in any way (401 included) leaves the original 500 to be retried instead of pausing. markPaused does not count an attempt for a create, so a pause would make the record editable again, and a 500 may follow a saved entry. The next POST pauses on a revoked key anyway.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Contract suite (npm run test:contract, Sure 131e786 in Docker): 11/11 pass, including the unknown account and another member's unshared account (POST 500, GET /accounts/{id}?include_disabled=true 404).
+Seeding found that create_and_sync auto-shares every account with the other family members (default_account_sharing "shared", members get read_write, guests read_only), and neither is writable_by. So the TASK-24 case is the default for any multi-member family; the seed removes the share to get an unshared account.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+A create or transfer leg answered 500 now triggers GET /api/v1/accounts/{id}?include_disabled=true. A 404 (account deleted or no longer shared) fails the record with "The account is no longer in Sure or no longer shared with you.", which the recent list shows as the row error, and the queue continues; the failed create stays editable so it can move to another account. Any other answer, a failed lookup, or another 5xx keeps the existing retry with backoff.
+
+Commits: 19f4106 (fake answers GET /accounts/{id}), 8082994 (contract tests for the lookup, seed gains an unshared account of another member), 8ea1d22 (push + tests + README).
+
+Verification: src/sync/push.test.ts "account Sure no longer has" (create fails and the next record is sent; failed create editable and resent to another account; transfer to/from a missing account; a 500 for an existing account is retried; 503 skips the lookup; a failed lookup retries for the 500 and keeps the record locked) — AC #1, #2, #3. Full npm test passes in the pre-commit hook; npm run test:contract passes against Sure 131e786.
+
+Risk / follow-up: an account shared without full_control (the default for another member's accounts) is found by the lookup and still holds the queue — TASK-24.
+<!-- SECTION:FINAL_SUMMARY:END -->
