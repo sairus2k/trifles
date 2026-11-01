@@ -1,6 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from "@playwright/test";
 
-test('the built app loads', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Sure Quick Entry' })).toBeVisible();
+test("the built app loads", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Sure Quick Entry" })).toBeVisible();
 });

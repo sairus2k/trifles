@@ -1,11 +1,11 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices } from "@playwright/test";
 
 const port = 4173;
 
 export default defineConfig({
-  testDir: './e2e',
+  testDir: "./e2e",
   use: { baseURL: `http://localhost:${port}` },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   // The service worker (TASK-15) only exists in a production build, so E2E runs against `vite preview`.
   webServer: {
     command: `npm run build && npx vite preview --port ${port} --strictPort`,

@@ -11,7 +11,7 @@
 
 Sure is a great personal finance app, but entering a cash expense on the go means opening the full web UI, navigating to an account and filling a long form. This project is a tiny companion app focused on one job: **capture a transaction in under five seconds, even without a connection**, and sync it to Sure later.
 
-The UX is inspired by the classic Russian budgeting service *Drebedengi*: one keyboard-driven form that is always on screen, recent entries right below it, and balances one tap away.
+The UX is inspired by the classic Russian budgeting service _Drebedengi_: one keyboard-driven form that is always on screen, recent entries right below it, and balances one tap away.
 
 ## Principles
 
@@ -68,15 +68,15 @@ Sure API (/api/v1, X-Api-Key)
 
 ### Local schema (Dexie)
 
-| Table | Key | Notes |
-|---|---|---|
-| `accounts` | `id` | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt` |
-| `categories` | `id` | `name`, `classification`, `color`, `icon` |
-| `merchants` | `id` | `name` |
-| `transactions` | `id` | Server transactions; index on `date` and `accountId` |
-| `suggestions` | `merchantName` | `merchantId`, `categoryId`, `count`, `lastUsedAt` |
-| `outbox` | `clientId` | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt` |
-| `meta` | `key` | Instance URL, API key, last pull timestamps |
+| Table          | Key            | Notes                                                                                         |
+| -------------- | -------------- | --------------------------------------------------------------------------------------------- |
+| `accounts`     | `id`           | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt` |
+| `categories`   | `id`           | `name`, `classification`, `color`, `icon`                                                     |
+| `merchants`    | `id`           | `name`                                                                                        |
+| `transactions` | `id`           | Server transactions; index on `date` and `accountId`                                          |
+| `suggestions`  | `merchantName` | `merchantId`, `categoryId`, `count`, `lastUsedAt`                                             |
+| `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`              |
+| `meta`         | `key`          | Instance URL, API key, last pull timestamps                                                   |
 
 Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pending | sending | failed | done`.
 
@@ -104,6 +104,7 @@ The Sure API cannot create a transfer directly (`/api/v1/transfers` is read-only
 After the account sync, Sure's `auto_match_transfers!` pairs them into a transfer when the currency is the same and the dates are within its matching window. Each leg is idempotent on its own, so a partially sent transfer is safely resumed.
 
 **Limitations:**
+
 - If another pair with the same amount exists within the window, Sure may pair the wrong legs.
 - Cross-currency pairs between manual accounts are **not** matched automatically (Sure restricts that to provider-linked accounts). This is why currency exchange is out of v1.
 
@@ -111,16 +112,16 @@ After the account sync, Sure's `auto_match_transfers!` pairs them into a transfe
 
 Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to the version of your instance.
 
-- **Auth:** API key from *Settings → API Key*, scope `read_write`, sent as `X-Api-Key`.
+- **Auth:** API key from _Settings → API Key_, scope `read_write`, sent as `X-Api-Key`.
 - **CORS:** Sure enables `Rack::Cors` with `origins "*"` for `/api/*`, so the app can be hosted on any origin. A reverse proxy or Cloudflare Access in front of Sure must let `OPTIONS` preflight requests through to Rails.
 - **Endpoints used in v1:**
 
-  | Purpose | Endpoint |
-  |---|---|
-  | Balances | `GET /api/v1/accounts` |
-  | Recent | `GET /api/v1/transactions?per_page=100` (already reverse chronological) |
-  | Create | `POST /api/v1/transactions` |
-  | Edit / delete | `PATCH`, `DELETE /api/v1/transactions/{id}` |
+  | Purpose        | Endpoint                                                                    |
+  | -------------- | --------------------------------------------------------------------------- |
+  | Balances       | `GET /api/v1/accounts`                                                      |
+  | Recent         | `GET /api/v1/transactions?per_page=100` (already reverse chronological)     |
+  | Create         | `POST /api/v1/transactions`                                                 |
+  | Edit / delete  | `PATCH`, `DELETE /api/v1/transactions/{id}`                                 |
   | Reference data | `GET /api/v1/categories`, `GET /api/v1/merchants`, `POST /api/v1/merchants` |
 
 - **Create payload:** send a positive `amount` and `nature: "expense" | "income"`. Sure stores expenses as positive and income as negative.
@@ -134,21 +135,21 @@ Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to t
 
 Pinned versions as of 2026-10-31. Solid 2 is a release candidate: **install every Solid package with an exact version**. The `latest` dist-tag of `@solidjs/web` still points to `2.0.0-rc.0`, and `solid-js@latest` is 1.x, so a plain `npm i` produces an incompatible mix.
 
-| Area | Package | Version |
-|---|---|---|
-| Language | `typescript` | 7.0.2 |
-| Build | `vite` | 8.3.5 (`vite-plugin-pwa` does not support Vite 9) |
-| UI | `solid-js`, `@solidjs/web` | 2.0.0-rc.20 |
-| UI build | `@solidjs/vite-plugin` | 3.0.0-next.54 |
-| PWA | `vite-plugin-pwa` | 2.0.0 |
-| Local DB | `dexie` | 4.4.7 |
-| API client | `orval` (fetch client) | 8.46.0 |
-| Mocks | `msw`, `@faker-js/faker` | 3.0.3, 10.6.0 |
-| Unit / component tests | `vitest`, `@vitest/browser-playwright` | 5.0.5 |
-| Component testing | `@solidjs/testing-library` | 1.0.0-rc.2 |
-| IndexedDB in Node | `fake-indexeddb` | 6.2.7 |
-| E2E | `@playwright/test` | 1.64.1 |
-| Lint / format | `oxlint`, `oxfmt` | 1.90.0, 0.75.0 (default settings) |
+| Area                   | Package                                | Version                                           |
+| ---------------------- | -------------------------------------- | ------------------------------------------------- |
+| Language               | `typescript`                           | 7.0.2                                             |
+| Build                  | `vite`                                 | 8.3.5 (`vite-plugin-pwa` does not support Vite 9) |
+| UI                     | `solid-js`, `@solidjs/web`             | 2.0.0-rc.20                                       |
+| UI build               | `@solidjs/vite-plugin`                 | 3.0.0-next.54                                     |
+| PWA                    | `vite-plugin-pwa`                      | 2.0.0                                             |
+| Local DB               | `dexie`                                | 4.4.7                                             |
+| API client             | `orval` (fetch client)                 | 8.46.0                                            |
+| Mocks                  | `msw`, `@faker-js/faker`               | 3.0.3, 10.6.0                                     |
+| Unit / component tests | `vitest`, `@vitest/browser-playwright` | 5.0.5                                             |
+| Component testing      | `@solidjs/testing-library`             | 1.0.0-rc.2                                        |
+| IndexedDB in Node      | `fake-indexeddb`                       | 6.2.7                                             |
+| E2E                    | `@playwright/test`                     | 1.64.1                                            |
+| Lint / format          | `oxlint`, `oxfmt`                      | 1.90.0, 0.75.0 (default settings)                 |
 
 ### Why these choices
 
@@ -193,21 +194,21 @@ e2e/
 `orval.config.ts`:
 
 ```ts
-import { defineConfig } from 'orval';
+import { defineConfig } from "orval";
 
 export default defineConfig({
   sure: {
     input: {
-      target: './spec/sure-openapi.yaml',
+      target: "./spec/sure-openapi.yaml",
       unsafeDisableValidation: true,
     },
     output: {
-      target: './src/api/generated/sure.ts',
-      client: 'fetch',
-      mode: 'split',
+      target: "./src/api/generated/sure.ts",
+      client: "fetch",
+      mode: "split",
       mock: true,
       override: {
-        mutator: { path: './src/api/http.ts', name: 'sureFetch' },
+        mutator: { path: "./src/api/http.ts", name: "sureFetch" },
       },
     },
   },
@@ -219,8 +220,8 @@ The mutator adds the instance URL and `X-Api-Key`, and checks `res.ok` and `cont
 ### Solid ↔ Dexie bridge
 
 ```ts
-import { liveQuery } from 'dexie';
-import { createSignal, onCleanup } from 'solid-js';
+import { liveQuery } from "dexie";
+import { createSignal, onCleanup } from "solid-js";
 
 export function createLiveQuery<T>(query: () => T | Promise<T>) {
   const [value, setValue] = createSignal<T | undefined>(undefined);

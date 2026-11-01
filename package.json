@@ -4,9 +4,6 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "engines": {
-    "node": ">=22.18.0"
-  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -40,5 +37,8 @@
     "vite": "8.3.5",
     "vite-plugin-pwa": "2.0.0",
     "vitest": "5.0.5"
+  },
+  "engines": {
+    "node": ">=22.18.0"
   }
 }
