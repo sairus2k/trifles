@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import { FAKE_SURE_URL, createFakeSure, type FakeSure } from "../../test/fake-sure";
 import { configureSure } from "../api/http";
 import { db, type EntryPayload, type TransferPayload } from "../db/schema";
-import { enqueue, enqueueDelete, enqueueUpdate } from "./outbox";
+import { editPending, enqueue, enqueueDelete, enqueueUpdate } from "./outbox";
 import { push } from "./push";
 
 const NOW = new Date("2026-11-01T10:00:00Z").getTime();
@@ -237,10 +237,40 @@ describe("pause", () => {
     expect(sure.requests).toHaveLength(requests);
     expect(await record(head)).toMatchObject({
       status: "pending",
+      attempts: 0,
       nextAttemptAt: NOW,
       lastError: expect.any(String),
     });
     expect(await record(next)).toMatchObject({ status: "pending", attempts: 0 });
+  });
+
+  test("an entry paused by a rejected key never reached Sure, so it stays editable", async () => {
+    sure.failNext(POST, { status: 401 });
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    await push();
+
+    await editPending(clientId, { op: "create", payload: entry({ amount: "4.20" }) });
+
+    expect(await record(clientId)).toMatchObject({ status: "pending", attempts: 0 });
+  });
+
+  test("a transfer paused on its second leg counts the attempt: the first leg is on Sure", async () => {
+    server.use(
+      http.post(TRANSACTIONS, async ({ request }) => {
+        const { transaction } = (await request.clone().json()) as {
+          transaction: { external_id: string };
+        };
+        return transaction.external_id.endsWith(":in")
+          ? HttpResponse.json({ error: "unauthorized" }, { status: 401 })
+          : undefined;
+      }),
+    );
+    const clientId = await enqueue({ op: "transfer", payload: withdrawal });
+
+    expect(await push()).toEqual({ sent: 0, paused: true });
+
+    expect(sure.transactions.map((t) => t.external_id)).toEqual([`${clientId}:out`]);
+    expect(await record(clientId)).toMatchObject({ status: "pending", attempts: 1 });
   });
 
   test("the paused head goes out first on the next push", async () => {

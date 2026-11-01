@@ -201,16 +201,31 @@ export function markRetry(clientId: string, error: string, nextAttemptAt: number
   return finishAttempt(clientId, { status: "pending", lastError: error, nextAttemptAt });
 }
 
+/**
+ * Requeues a record stopped by a rejected key or missing settings. Sure applied nothing, so a create
+ * keeps its attempt count and stays editable; a transfer counts it, since its first leg may have been
+ * accepted before the second was rejected.
+ */
+export function markPaused(clientId: string, error: string): Promise<void> {
+  return finishAttempt(
+    clientId,
+    { status: "pending", lastError: error, nextAttemptAt: Date.now() },
+    (record) => record.op === "transfer",
+  );
+}
+
 async function finishAttempt(
   clientId: string,
   changes: Pick<OutboxRecord, "status" | "lastError" | "appliedAt"> & { nextAttemptAt?: number },
+  counts: (record: OutboxRecord) => boolean = () => true,
 ): Promise<void> {
   await db.transaction("rw", db.outbox, async () => {
     const record = await db.outbox.get(clientId);
     if (record?.status !== "sending") {
       throw new Error(`Outbox record ${clientId} is not being sent`);
     }
-    await db.outbox.put({ ...record, ...changes, attempts: record.attempts + 1 });
+    const attempts = record.attempts + (counts(record) ? 1 : 0);
+    await db.outbox.put({ ...record, ...changes, attempts });
   });
 }
 

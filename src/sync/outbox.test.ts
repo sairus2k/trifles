@@ -16,6 +16,7 @@ import {
   headRetryAt,
   markDone,
   markFailed,
+  markPaused,
   markRetry,
   onOutboxWrite,
   removePending,
@@ -403,10 +404,36 @@ describe("status transitions", () => {
     expect(await claimNext()).toBeUndefined();
   });
 
+  test("markPaused requeues a create without counting the attempt, so it stays editable", async () => {
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    await claimNext();
+
+    await markPaused(clientId, "HTTP 401");
+
+    expect(await db.outbox.get(clientId)).toMatchObject({
+      status: "pending",
+      attempts: 0,
+      nextAttemptAt: NOW,
+      lastError: "HTTP 401",
+    });
+    await editPending(clientId, { op: "create", payload: { ...coffee, amount: "4" } });
+  });
+
+  test("markPaused counts the attempt of a transfer: its first leg may be on the server", async () => {
+    const clientId = await enqueue({ op: "transfer", payload: withdrawal });
+    await claimNext();
+
+    await markPaused(clientId, "HTTP 401");
+
+    expect(await db.outbox.get(clientId)).toMatchObject({ status: "pending", attempts: 1 });
+    await expect(removePending(clientId)).rejects.toThrow(OutboxLockedError);
+  });
+
   test.each([
     ["markDone", (id: string) => markDone(id)],
     ["markFailed", (id: string) => markFailed(id, "Invalid")],
     ["markRetry", (id: string) => markRetry(id, "HTTP 500", NOW)],
+    ["markPaused", (id: string) => markPaused(id, "HTTP 401")],
   ])("%s only moves a record that is sending", async (_, mark) => {
     const clientId = await enqueue({ op: "create", payload: coffee });
     const before = await db.outbox.get(clientId);

@@ -8,7 +8,7 @@ import {
 } from "../api/generated/sure";
 import { SureError } from "../api/http";
 import type { EntryPayload, OutboxRecord, UpdatePayload } from "../db/schema";
-import { claimNext, markDone, markFailed, markRetry, transferLegs } from "./outbox";
+import { claimNext, markDone, markFailed, markPaused, markRetry, transferLegs } from "./outbox";
 
 const SOURCE = "sure-quick-entry";
 
@@ -56,7 +56,7 @@ export async function push(): Promise<PushResult> {
         await markRetry(record.clientId, outcome.error, backoff(record.attempts));
         break;
       case "paused":
-        await markRetry(record.clientId, outcome.error, Date.now());
+        await markPaused(record.clientId, outcome.error);
         return { sent, paused: true };
     }
   }
