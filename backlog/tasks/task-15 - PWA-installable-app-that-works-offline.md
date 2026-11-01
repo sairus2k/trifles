@@ -4,7 +4,7 @@ title: 'PWA: installable app that works offline'
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T16:50:00Z'
+updated_date: '2026-11-01T17:29:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -59,6 +59,15 @@ created: 2026-11-01T16:50:00Z
 ---
 
 From TASK-11: the CORS classification in `src/features/settings/check.ts` is not covered by any test that a real browser enforces. Node fetch reports every request as `cors` to msw, and a response synthesized by the msw service worker skips the CORS check, so removing `mode: "no-cors"` from the follow-up probe fails nothing. Add an E2E case: serve a second origin from Playwright that answers `/api/v1/accounts` without CORS headers (or fails the OPTIONS preflight), enter it in Settings and expect the CORS message ("… answered, but the browser blocked the request (CORS)"), not "Cannot reach …".
+
+---
+
+author: @claude
+created: 2026-11-01T17:29:00Z
+
+---
+
+From TASK-22: index.html has viewport-fit=cover and the screens pad with pt-safe/px-safe/pb-safe (src/index.css), so content clears the notch and home indicator. Still open here, together with the manifest: apple-mobile-web-app-status-bar-style (black-translucent always draws white status-bar text, unreadable on the light theme; default does not follow dark mode) and theme-color / manifest theme_color. Their values have to repeat the --color-surface literals, since meta tags cannot read CSS variables. Check the result on a real iPhone in standalone mode in light and dark.
 
 ---
 <!-- COMMENTS:END -->

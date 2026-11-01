@@ -1,11 +1,11 @@
 ---
 id: TASK-22
 title: 'Styling foundation: Tailwind, mobile shell and Settings styles'
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T16:59:00Z'
-updated_date: '2026-11-01T17:21:00Z'
+updated_date: '2026-11-01T17:29:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -25,12 +25,12 @@ No task covered styling, so each screen task (TASK-12, TASK-13, TASK-14) would h
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tailwind is installed with exact versions through its Vite plugin; README → Tech stack and Why these choices record the versions and the reason
-- [ ] #2 The build loads no third-party or CDN script and its CSS contains only classes the app uses
-- [ ] #3 Colors, spacing and type are defined once as theme tokens; the app follows the system light or dark preference
-- [ ] #4 A mobile-first shell with the header (Settings, Sync paused) respects safe-area insets in standalone mode on iOS
-- [ ] #5 Interactive elements are at least 44 px tall; the Settings screen, its pause explanation and its errors are styled
-- [ ] #6 Existing component and E2E tests pass unchanged
+- [x] #1 Tailwind is installed with exact versions through its Vite plugin; README → Tech stack and Why these choices record the versions and the reason
+- [x] #2 The build loads no third-party or CDN script and its CSS contains only classes the app uses
+- [x] #3 Colors, spacing and type are defined once as theme tokens; the app follows the system light or dark preference
+- [x] #4 A mobile-first shell with the header (Settings, Sync paused) respects safe-area insets in standalone mode on iOS
+- [x] #5 Interactive elements are at least 44 px tall; the Settings screen, its pause explanation and its errors are styled
+- [x] #6 Existing component and E2E tests pass unchanged
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -65,4 +65,17 @@ Out of scope: apple-mobile-web-app-status-bar-style and the manifest theme_color
 
 <!-- SECTION:NOTES:BEGIN -->
 User decisions 2026-11-01: enable oxfmt sortTailwindcss (update the README Lint/format row); theme keeps only semantic color tokens (--color-*: initial).
+
+Implemented as planned, with these deviations and results:
+- No theme-color meta in index.html: it needs color literals that would duplicate the tokens, and on iOS it matters together with the manifest theme_color and the status bar style, so it moves to TASK-15 with them.
+- Spacing and type use Tailwind's default scales (--spacing, --text-*) as the single definition; only colors are replaced.
+- Header buttons are shrink-0 so 'Sync paused' stays on one line at 393 px; the title truncates instead.
+- A global :focus-visible outline in the accent color replaces per-button focus classes.
+- Verification: npm run typecheck; npm test (17 files, 258 tests); npm run test:e2e (4 tests: app.spec.ts plus style.spec.ts for same-origin load and stylesheet, 44 px controls on first run / paused Settings / main header, dark scheme). Built CSS 8.3 kB (2.5 kB gzip) holds only classes used in src/**/*.tsx. Screenshots at iPhone 15 size in light and dark. Safe area: with insets emulated through CDP (Emulation.setSafeAreaInsetsOverride top 59, bottom 34) Settings pads 71 px top, 34 px bottom, 16 px sides. Not verified on a real iPhone in standalone mode (TASK-15 DoD covers the device check).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added Tailwind 4.3.3 through @tailwindcss/vite (build-time only, no script) with src/index.css as the single styling entry: scanning limited to src/**/*.tsx (automatic detection pulled unused classes from README, backlog and sync code), a theme with only semantic light-dark() colors so the app follows the system scheme without dark: variants, safe-area padding utilities and a viewport that covers the notch. oxfmt now sorts Tailwind classes (sortTailwindcss). The main-screen header and the Settings screen are styled: sticky header with Sync paused in warning colors, 44 px controls, 16 px input text against iOS focus zoom, warning-styled pause explanation and danger-styled errors. README (Tech stack, Why these choices, Project structure, Mobile details, Testing) and an AGENTS.md gotcha document the rules for the next screens. New e2e/style.spec.ts covers same-origin loading, control size and the color scheme; existing component and E2E tests are unchanged and pass. Follow-up: iOS status bar style and theme color belong to TASK-15 and need a real-iPhone check.
+<!-- SECTION:FINAL_SUMMARY:END -->
