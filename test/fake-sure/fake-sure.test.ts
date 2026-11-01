@@ -1,11 +1,14 @@
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
+  deleteApiV1TransactionsId,
   getApiV1Accounts,
   getApiV1Categories,
   getApiV1Merchants,
   getApiV1Transactions,
+  patchApiV1TransactionsId,
   postApiV1Transactions,
+  type PatchApiV1TransactionsIdBodyTransaction,
   type PostApiV1TransactionsBodyTransaction,
 } from "../../src/api/generated/sure";
 import { SureError, configureSure } from "../../src/api/http";
@@ -129,10 +132,104 @@ describe("POST /transactions", () => {
     expect(sure.transactions).toHaveLength(0);
   });
 
-  test("answers 404 for an unknown account, a status the spec does not declare", async () => {
-    const result = await postApiV1Transactions({ transaction: coffee({ account_id: "missing" }) });
+  test("answers 500 for an unknown account, like Sure's own rescue in create", async () => {
+    const error = await rejection(
+      postApiV1Transactions({ transaction: coffee({ account_id: "missing" }) }),
+    );
 
-    expect(result).toMatchObject({ status: 404, data: { error: "record_not_found" } });
+    expect(error).toMatchObject({ kind: "http", status: 500 });
+    expect(sure.transactions).toHaveLength(0);
+  });
+});
+
+describe("PATCH /transactions/{id}", () => {
+  test("updates the given fields, signs the amount by nature and moves the balance", async () => {
+    const { data: created } = await postApiV1Transactions({ transaction: coffee() });
+    const id = (created as { id: string }).id;
+
+    const updated = await patchApiV1TransactionsId(id, {
+      transaction: {
+        name: "Lunch",
+        date: "2026-10-31",
+        amount: 20,
+        nature: "expense",
+        notes: "With Ana",
+        category_id: "cat-restaurants",
+      },
+    });
+
+    expect(updated.status).toBe(200);
+    expect(updated.data).toMatchObject({
+      id,
+      name: "Lunch",
+      date: "2026-10-31",
+      amount_decimal: "20.0",
+      notes: "With Ana",
+      category: { id: "cat-restaurants" },
+    });
+    expect(balanceOf("acc-cash").balance_cents).toBe(100_000 - 2000);
+  });
+
+  test("keeps fields sent as null, a blank category or merchant, and ignores currency", async () => {
+    const { data: created } = await postApiV1Transactions({
+      transaction: coffee({
+        notes: "Keep",
+        category_id: "cat-restaurants",
+        merchant_id: "mer-starbucks",
+      }),
+    });
+    const id = (created as { id: string }).id;
+
+    const updated = await patchApiV1TransactionsId(id, {
+      // The spec types these fields as strings; a client may still send null.
+      transaction: {
+        notes: null,
+        category_id: "",
+        merchant_id: null,
+        currency: "USD",
+      } as unknown as PatchApiV1TransactionsIdBodyTransaction,
+    });
+
+    expect(updated.data).toMatchObject({
+      notes: "Keep",
+      currency: "EUR",
+      category: { id: "cat-restaurants" },
+      merchant: { id: "mer-starbucks" },
+    });
+  });
+
+  test("clears notes with an empty string", async () => {
+    const { data: created } = await postApiV1Transactions({ transaction: coffee({ notes: "x" }) });
+
+    const updated = await patchApiV1TransactionsId((created as { id: string }).id, {
+      transaction: { notes: "" },
+    });
+
+    expect(updated.data).toMatchObject({ notes: "" });
+  });
+
+  test("answers 404 not_found for an unknown transaction", async () => {
+    const result = await patchApiV1TransactionsId("missing", { transaction: { name: "x" } });
+
+    expect(result).toMatchObject({ status: 404, data: { error: "not_found" } });
+  });
+});
+
+describe("DELETE /transactions/{id}", () => {
+  test("removes the transaction and restores the balance, then answers 404", async () => {
+    const { data: created } = await postApiV1Transactions({ transaction: coffee() });
+    const id = (created as { id: string }).id;
+
+    const deleted = await deleteApiV1TransactionsId(id);
+    const again = await deleteApiV1TransactionsId(id);
+
+    expect(deleted).toMatchObject({
+      status: 200,
+      data: { message: "Transaction deleted successfully" },
+    });
+    expect(again).toMatchObject({ status: 404, data: { error: "not_found" } });
+    expect(sure.transactions).toHaveLength(0);
+    expect(balanceOf("acc-cash").balance_cents).toBe(100_000);
   });
 });
 
@@ -178,6 +275,18 @@ describe("failNext", () => {
     const retry = await postApiV1Transactions({ transaction: coffee() });
     expect(retry.status).toBe(200);
     expect(sure.transactions).toHaveLength(1);
+  });
+
+  test("hang: the server never answers, so only a client timeout ends the request", async () => {
+    sure.failNext("POST /api/v1/transactions", "hang");
+
+    const error = await rejection(
+      postApiV1Transactions({ transaction: coffee() }, { signal: AbortSignal.timeout(20) }),
+    );
+
+    expect(error.kind).toBe("network");
+    expect(sure.requests).toHaveLength(1);
+    expect(sure.transactions).toHaveLength(0);
   });
 
   test("faults queue per route and are used once each", async () => {
