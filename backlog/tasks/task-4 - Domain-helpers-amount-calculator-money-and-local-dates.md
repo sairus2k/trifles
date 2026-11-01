@@ -1,11 +1,11 @@
 ---
 id: TASK-4
 title: 'Domain helpers: amount calculator, money and local dates'
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T14:18:00Z'
+updated_date: '2026-11-01T14:20:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -23,11 +23,11 @@ The amount field accepts expressions like `120+35.5-10`, evaluated on submit. Ru
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The calculator supports `+ − × ÷`, decimal point and comma, and operator precedence, without `eval` or `new Function`
-- [ ] #2 Invalid expressions, division by zero and non-positive results are rejected with a clear error
-- [ ] #3 Money helpers convert between decimal strings and cents without floating-point drift
-- [ ] #4 Today’s date helper returns the local date: a test with `vi.setSystemTime` at 00:30 Europe/Paris yields the correct day
-- [ ] #5 All helpers have unit tests
+- [x] #1 The calculator supports `+ − × ÷`, decimal point and comma, and operator precedence, without `eval` or `new Function`
+- [x] #2 Invalid expressions, division by zero and non-positive results are rejected with a clear error
+- [x] #3 Money helpers convert between decimal strings and cents without floating-point drift
+- [x] #4 Today’s date helper returns the local date: a test with `vi.setSystemTime` at 00:30 Europe/Paris yields the correct day
+- [x] #5 All helpers have unit tests
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -51,3 +51,26 @@ Decisions (user): helpers take an explicit scale (currency -> scale mapping is T
 
 Out of scope: currency -> scale mapping (TASK-9/14), display formatting (TASK-14), form error UI (TASK-12), Number() at send time (TASK-8).
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Deviation from the plan: added a too-large calculator error. A result above Number.MAX_SAFE_INTEGER cents would otherwise make fromCents throw on user input.
+Verification (2026-11-01): 84 new unit tests (money 37, calc 43, dates 4); full suite 98 passed; typecheck, lint, format:check and build pass. The date test asserts getTimezoneOffset() === -60 so it fails loudly if Vitest stops honouring the runtime TZ (e.g. a switch to the threads pool).
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added the domain helpers the entry form, sync and balances build on, all in src/domain with unit tests.
+
+money.ts: toCents(decimal, scale) and fromCents(cents, scale) convert between decimal strings and minor units through strings and BigInt, so 1.005 and 0.29 stay exact. Extra fraction digits (Sure stores up to 4) round half away from zero, like Sure's balance_cents. The scale is the caller's: Intl's currency digits disagree with Sure's currency table for 35 of 182 currencies.
+
+calc.ts: evaluateAmount(input, scale) is a recursive descent parser for + − × ÷ (and ASCII + - * /) with precedence, decimal point or comma, no eval or new Function. It computes in exact BigInt fractions and rounds once to the scale (100÷3 → 33.33). It returns { ok, value } or an error code with an English message: empty, invalid, division-by-zero, not-positive, too-large. No parentheses or unary minus.
+
+dates.ts: toLocalDate(date) and todayLocal() use local getters; tested at 00:30 Europe/Paris in winter and summer time with vi.setSystemTime.
+
+Checks: 98 tests, typecheck, lint, format and build pass.
+
+Follow-ups: mapping a currency to its scale (TASK-9/14; must match Sure's minor_unit_conversion, not Intl; MGA/MRU use 5, not a power of 10); Number(value) when sending the create (TASK-8).
+<!-- SECTION:FINAL_SUMMARY:END -->
