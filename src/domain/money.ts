@@ -43,8 +43,8 @@ export function fromCents(cents: number, scale: number): string {
 }
 
 /**
- * A signed display amount, rounded to the digits Sure uses for the currency. Display only: the float
- * is never stored or sent.
+ * A display amount, rounded to the digits Sure uses for the currency; only a negative one is signed.
+ * Display only: the float is never stored or sent.
  */
 export function formatAmount(decimal: string, currency: string, locale?: string): string {
   const digits = amountScale(currency);
@@ -53,6 +53,6 @@ export function formatAmount(decimal: string, currency: string, locale?: string)
     currency,
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
-    signDisplay: "exceptZero",
-  }).format(Number(decimal));
+    // `|| 0` turns "-0" into 0, which Intl would print as "-€0.00".
+  }).format(Number(decimal) || 0);
 }
