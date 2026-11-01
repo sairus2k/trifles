@@ -1,0 +1,17 @@
+# Until CI lands after the v1 MVP (TASK-2), this hook is the only automatic gate: commits go straight to `main`.
+pre-commit:
+  parallel: true
+  jobs:
+    # oxlint reports its default rules as warnings and exits 0 on them.
+    # Both tools pick the files they support and apply their own ignore patterns; the flag keeps
+    # a commit with none of those files (e.g. backlog only) from failing.
+    - name: lint
+      run: npx oxlint --deny-warnings --no-error-on-unmatched-pattern {staged_files}
+    - name: format
+      run: npx oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+    - name: typecheck
+      run: npm run typecheck
+      exclude: ["*.md"]
+    - name: test
+      run: npm test
+      exclude: ["*.md"]

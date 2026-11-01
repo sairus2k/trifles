@@ -32,6 +32,8 @@ Pre-alpha: nothing is scaffolded yet. `README.md` is the design document (archit
 
 Conventional Commits (`feat:`, `fix:`, `chore:`, ...). No PRs, no feature branches: commit directly to `main`.
 
+The lefthook pre-commit hook (lint, format, typecheck, tests) is the only automatic gate. Never bypass it with `--no-verify` or `LEFTHOOK=0`; fix the cause. If the failure is unrelated to your change, stop and report it.
+
 ## Gotchas
 
 - **Solid 2, not Solid 1.** No `createResource`, `Suspense`, `ErrorBoundary`, `batch` or single-argument `createEffect`. Use `<Loading>`, `<Errored>`, `createEffect(compute, apply)` and `flush()`. Check APIs at https://v2.solidjs.com/migration/from-solid-1.

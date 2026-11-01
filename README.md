@@ -286,7 +286,7 @@ orval's generated MSW handlers (`mock: true`) are useful for dev mode and compon
 Requires Node.js 22.18 or newer.
 
 ```sh
-npm install
+npm install                       # also installs the lefthook pre-commit hook
 npx playwright install chromium   # browser for component and E2E tests
 npm run gen:api      # orval: spec/sure-openapi.yaml → src/api/generated (not added yet)
 npm run dev          # Vite dev server
@@ -297,6 +297,19 @@ npm test             # Vitest: Node and browser-mode projects
 npm run test:e2e     # Playwright against `vite preview`
 npm run build        # static build in dist/
 ```
+
+### Pre-commit hook
+
+Commits go straight to `main`, so [lefthook](https://lefthook.dev) checks every commit (`lefthook.yml`). The checks run in parallel:
+
+| Check     | Command                                  | Runs on                                              |
+| --------- | ---------------------------------------- | ---------------------------------------------------- |
+| lint      | `oxlint --deny-warnings` (warnings fail) | staged files                                         |
+| format    | `oxfmt --check`                          | staged files                                         |
+| typecheck | `npm run typecheck`                      | the whole project; skipped for Markdown-only commits |
+| test      | `npm test` (Node and browser projects)   | the whole project; skipped for Markdown-only commits |
+
+The browser tests need Chromium (`npx playwright install chromium`). Typecheck and tests see the working tree, not only the staged changes. In an emergency, `git commit --no-verify` or `LEFTHOOK=0` skips the hook.
 
 ### Updating the Sure spec
 
