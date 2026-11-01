@@ -292,7 +292,10 @@ describe("edit", () => {
     await renderRecent();
     const dialog = await open("Lidl");
 
-    const none = within(dialog).getByRole<HTMLOptionElement>("option", { name: "No category" });
+    // The dialog opens before its form leaves <Loading>.
+    const none = await within(dialog).findByRole<HTMLOptionElement>("option", {
+      name: "No category",
+    });
     expect(none.disabled).toBe(true);
     expect(within(dialog).queryByText(/Sure keeps the merchant/)).toBeNull();
     await userEvent.fill(within(dialog).getByLabelText("Merchant"), "Corner shop");
