@@ -31,6 +31,7 @@ beforeEach(async () => {
 afterEach(() => {
   server.resetHandlers();
   configureSure(undefined);
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 afterAll(() => server.close());
@@ -130,6 +131,18 @@ describe("pullReference", () => {
 
     expect((await db.accounts.toArray()).map((a) => a.id)).toEqual(["acc-closed"]);
     expect((await db.categories.toArray()).map((c) => c.id)).toEqual(["cat-gone"]);
+  });
+
+  test("a request that never answers times out and leaves the cache as it was", async () => {
+    await cacheStaleReference();
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => realTimeout(10));
+    sure.failNext("GET /api/v1/categories", "hang");
+
+    await expect(pullReference()).rejects.toMatchObject({ kind: "network" });
+
+    expect(timeout).toHaveBeenCalledWith(30_000);
+    expect((await db.accounts.toArray()).map((a) => a.id)).toEqual(["acc-closed"]);
   });
 
   test("a JSON error the spec does not declare is thrown, not cached", async () => {

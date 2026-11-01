@@ -20,18 +20,20 @@ import { doneClientIds, dropFinished } from "./outbox";
 // and the cache is written in one transaction after them, so a failed pull changes nothing.
 
 const PER_PAGE = 100; // Sure's maximum
+// Pulls run under the sync lock, so a host that never answers would hold the queue for good.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 /** Accounts, categories and merchants. */
 export async function pullReference(): Promise<void> {
   const accounts = await fetchAccounts();
   const categories = await allPages(async (page) => {
     const { categories, pagination } = ok(
-      await getApiV1Categories({ page, per_page: PER_PAGE }),
+      await getApiV1Categories({ page, per_page: PER_PAGE }, timeout()),
       "/api/v1/categories",
     );
     return { items: categories, pagination };
   });
-  const merchants = ok(await getApiV1Merchants(), "/api/v1/merchants");
+  const merchants = ok(await getApiV1Merchants(timeout()), "/api/v1/merchants");
 
   await db.transaction("rw", [db.accounts, db.categories, db.merchants], async () => {
     await db.accounts.clear();
@@ -54,7 +56,7 @@ export async function pullRecent(): Promise<void> {
   const accounts = await fetchAccounts();
   // Sure lists them newest first.
   const { transactions } = ok(
-    await getApiV1Transactions({ per_page: PER_PAGE }),
+    await getApiV1Transactions({ per_page: PER_PAGE }, timeout()),
     "/api/v1/transactions",
   );
 
@@ -76,7 +78,7 @@ export async function pullRecent(): Promise<void> {
 async function fetchAccounts(): Promise<AccountRecord[]> {
   const accounts = await allPages(async (page) => {
     const { accounts, pagination } = ok(
-      await getApiV1Accounts({ page, per_page: PER_PAGE }),
+      await getApiV1Accounts({ page, per_page: PER_PAGE }, timeout()),
       "/api/v1/accounts",
     );
     return { items: accounts, pagination };
@@ -144,6 +146,10 @@ function toSuggestions(transactions: Transaction[]): SuggestionRecord[] {
     suggestion.lastUsedAt = Math.max(suggestion.lastUsedAt, usedAt);
   }
   return [...byMerchant.values()].map(({ suggestion }) => suggestion);
+}
+
+function timeout(): RequestInit {
+  return { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) };
 }
 
 async function allPages<T>(
