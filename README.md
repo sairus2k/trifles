@@ -85,7 +85,7 @@ Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pendi
 - **Triggers:** app start, `online`, `visibilitychange → visible`, after every enqueue, and a timer while the app is open. Do **not** rely on the Background Sync API (not available on iOS).
 - **One worker:** wrap the push loop in `navigator.locks.request('outbox', …)` so only one tab processes the queue.
 - **Sequential:** records are sent one at a time, in creation order.
-- **Idempotency:** every create sends `external_id` (the client UUID) and `source: "sure-quick-entry"`. Sure returns `200` with the existing transaction if it has already seen that pair, so **retrying after any ambiguous failure is safe**.
+- **Idempotency:** every create sends `external_id` (the client UUID) and `source: "sure-quick-entry"`. Sure returns `200` with the existing transaction if that account already has one with that pair (the key is scoped to the account), so **retrying after any ambiguous failure is safe**.
 - **Error handling:**
   - `200` / `201` → done.
   - `422` → `failed`, shown in the UI with the server message; the queue continues.
@@ -266,7 +266,7 @@ const recent = createLiveQuery(accountId, (id) =>
 
 Effort follows risk: most of the complexity is in the sync engine, so most of the tests are there.
 
-1. **Sync engine** (Vitest + `fake-indexeddb` + a stateful MSW fake of Sure). The fake keeps a `Map` of `external_id` → transaction and can answer `201`, `200`, `422`, `401`, `500` or drop the connection. Required scenarios:
+1. **Sync engine** in the Node project (Vitest + `fake-indexeddb` + `msw/node` + the stateful fake in `test/fake-sure/`). The engine is plain TS with no Solid, and every Node test file gets its own `fake-indexeddb`, so the app's shared `db` needs no per-file isolation. The fake answers `201` for a new account + `external_id` + `source` and `200` with the existing transaction for a repeat, moves the account balance and `updated_at` (whole seconds, like Sure) after a write or holds them with `pauseAccountSync()`, and `failNext(route, fault)` makes the next request to a route answer a status (`401`, `422`, `500`…), drop the connection, or apply the write and lose the response. Required scenarios:
    - request reaches the server, response is lost → retry → `200` → no duplicate;
    - `422` → `failed`, the queue continues;
    - `401` → the queue pauses, no retry loop;
