@@ -73,7 +73,7 @@ Sure API (/api/v1, X-Api-Key)
 | `accounts`     | `id`           | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt`                                     |
 | `categories`   | `id`           | `name`, `color`, `icon` (Sure no longer has category classification)                                                              |
 | `merchants`    | `id`           | `name`                                                                                                                            |
-| `transactions` | `id`           | Server transactions; index on `date` and `accountId`                                                                              |
+| `transactions` | `id`           | Server transactions with `externalId` (matches outbox records); index on `date` and `accountId`                                   |
 | `suggestions`  | `merchantName` | `merchantId`, `categoryId`, `count`, `lastUsedAt`                                                                                 |
 | `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`, `appliedAt`; index on `createdAt` (queue order) |
 | `meta`         | `key`          | Instance URL, API key, last pull timestamps                                                                                       |
@@ -94,7 +94,7 @@ Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pendi
   - A transfer resends both legs on every attempt; Sure answers `200` for the leg it already has.
 - **Editing pending records:** editing or deleting a record that has not been sent yet rewrites or removes the outbox entry instead of queuing a second operation. This is allowed only while the write certainly is not on the server: a `create` or `transfer` never attempted, or a `create` that failed with a definitive answer (`422`, `404`). Anything that may have reached Sure (`sending`, retrying after an attempt, a failed transfer with one leg possibly sent, `done`) is locked: a retry with the same `external_id` would answer `200` with the old values, and a changed account would create a second transaction. Once `done`, an edit goes out as an `update`.
 - **Editing synced transactions** enqueues `update` (full values; `PATCH` cannot change the account) or `delete`. A queued `update` or `delete` for the same transaction is overwritten instead of queuing another one, unless it is already `sending`.
-- **Pull:** accounts, categories and merchants on every online start; the latest 100 transactions after every successful push and on demand.
+- **Pull:** `pullReference()` (accounts, categories and merchants, every page) on every online start; `pullRecent()` (accounts and the latest 100 transactions) after every successful push and on demand. Each pull fetches everything first and replaces the cached tables in one Dexie transaction, so a failed pull leaves the cache as it was.
 
 ### Transfers
 

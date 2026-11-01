@@ -1,9 +1,10 @@
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { FAKE_SURE_URL, createFakeSure, defaultSeed, type FakeSure } from "../../test/fake-sure";
+import { postApiV1Transactions, type PostApiV1TransactionsBody } from "../api/generated/sure";
 import { SureError, configureSure } from "../api/http";
 import { db } from "../db/schema";
-import { pullReference } from "./pull";
+import { pullRecent, pullReference } from "./pull";
 
 const NOW = new Date("2026-11-01T10:00:00Z").getTime();
 const SEEDED_AT = Date.parse("2026-10-01T09:00:00Z");
@@ -26,6 +27,25 @@ afterEach(() => {
   vi.useRealTimers();
 });
 afterAll(() => server.close());
+
+// Writes straight to the fake, as another client of Sure would.
+async function serverTransaction(
+  overrides: Partial<PostApiV1TransactionsBody["transaction"]> = {},
+) {
+  const reply = await postApiV1Transactions({
+    transaction: {
+      account_id: "acc-cash",
+      date: "2026-11-01",
+      amount: 3.5,
+      nature: "expense",
+      currency: "EUR",
+      name: "Coffee",
+      ...overrides,
+    },
+  });
+  if (reply.status === 422) throw new Error("rejected");
+  return reply.data;
+}
 
 async function cacheStaleReference() {
   await db.accounts.put({
@@ -110,5 +130,75 @@ describe("pullReference", () => {
 
     await expect(pullReference()).rejects.toMatchObject({ kind: "http", status: 403 });
     expect(await db.accounts.count()).toBe(0);
+  });
+});
+
+describe("pullRecent", () => {
+  test("replaces the cached transactions with the latest 100", async () => {
+    await db.transactions.put({
+      id: "tx-gone",
+      accountId: "acc-cash",
+      date: "2026-01-01",
+      name: "Deleted on the server",
+      amountDecimal: "1.0",
+      currency: "EUR",
+      categoryId: null,
+      merchantId: null,
+      notes: null,
+      externalId: null,
+    });
+    for (let day = 1; day <= 105; day++) {
+      const date = new Date(Date.UTC(2026, 6, day)).toISOString().slice(0, 10);
+      await serverTransaction({ date, name: `Day ${day}` });
+    }
+    sure.requests.length = 0;
+
+    await pullRecent();
+
+    expect(sure.requests.map((r) => r.path)).toContain("/api/v1/transactions?per_page=100");
+    const cached = await db.transactions.orderBy("date").toArray();
+    expect(cached).toHaveLength(100);
+    expect(cached[0]!.name).toBe("Day 6");
+    expect(cached.at(-1)!.name).toBe("Day 105");
+  });
+
+  test("reads the amount from amount_decimal, never the display string", async () => {
+    const created = await serverTransaction({
+      amount: 1234.5,
+      notes: "Team lunch",
+      category_id: "cat-restaurants",
+      merchant_id: "mer-starbucks",
+      external_id: "client-1",
+      source: "sure-quick-entry",
+    });
+    sure.transactions[0]!.amount = "€9.99";
+
+    await pullRecent();
+
+    expect(await db.transactions.toArray()).toEqual([
+      {
+        id: created.id,
+        accountId: "acc-cash",
+        date: "2026-11-01",
+        name: "Coffee",
+        amountDecimal: "1234.5",
+        currency: "EUR",
+        categoryId: "cat-restaurants",
+        merchantId: "mer-starbucks",
+        notes: "Team lunch",
+        externalId: "client-1",
+      },
+    ]);
+  });
+
+  test("refreshes the account balances", async () => {
+    await serverTransaction();
+
+    await pullRecent();
+
+    expect(await db.accounts.get("acc-cash")).toMatchObject({
+      balanceCents: 99_650,
+      updatedAt: NOW,
+    });
   });
 });

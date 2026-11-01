@@ -2,11 +2,13 @@ import {
   getApiV1Accounts,
   getApiV1Categories,
   getApiV1Merchants,
+  getApiV1Transactions,
   type AccountDetail,
   type Pagination,
+  type Transaction,
 } from "../api/generated/sure";
 import { SureError } from "../api/http";
-import { db, type AccountRecord } from "../db/schema";
+import { db, type AccountRecord, type TransactionRecord } from "../db/schema";
 
 // Screens read only from the cache, so pull replaces it with what Sure returns. Requests come first
 // and the cache is written in one transaction after them, so a failed pull changes nothing.
@@ -37,6 +39,23 @@ export async function pullReference(): Promise<void> {
   });
 }
 
+/** Accounts, for fresh balances, and the latest 100 transactions. */
+export async function pullRecent(): Promise<void> {
+  const accounts = await fetchAccounts();
+  // Sure lists them newest first.
+  const { transactions } = ok(
+    await getApiV1Transactions({ per_page: PER_PAGE }),
+    "/api/v1/transactions",
+  );
+
+  await db.transaction("rw", [db.accounts, db.transactions], async () => {
+    await db.accounts.clear();
+    await db.accounts.bulkPut(accounts);
+    await db.transactions.clear();
+    await db.transactions.bulkPut(transactions.map(toTransaction));
+  });
+}
+
 async function fetchAccounts(): Promise<AccountRecord[]> {
   const accounts = await allPages(async (page) => {
     const { accounts, pagination } = ok(
@@ -58,6 +77,22 @@ function toAccount(account: AccountDetail): AccountRecord {
     balanceCents: account.balance_cents,
     status: account.status,
     updatedAt: Date.parse(account.updated_at),
+  };
+}
+
+// `amount` is a display string; `amount_decimal` is the exact value.
+function toTransaction(transaction: Transaction): TransactionRecord {
+  return {
+    id: transaction.id,
+    accountId: transaction.account.id,
+    date: transaction.date,
+    name: transaction.name,
+    amountDecimal: transaction.amount_decimal,
+    currency: transaction.currency,
+    categoryId: transaction.category?.id ?? null,
+    merchantId: transaction.merchant?.id ?? null,
+    notes: transaction.notes ?? null,
+    externalId: transaction.external_id ?? null,
   };
 }
 

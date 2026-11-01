@@ -37,6 +37,8 @@ export interface TransactionRecord {
   categoryId: string | null;
   merchantId: string | null;
   notes: string | null;
+  /** Ours for entries sent by this app: `clientId`, or `<clientId>:out` / `<clientId>:in`. */
+  externalId: string | null;
 }
 
 export interface SuggestionRecord {
