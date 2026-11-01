@@ -129,13 +129,7 @@ export async function pendingDeltas(): Promise<Map<string, string>> {
   const sums = new Map<string, number>();
   for (const record of records) {
     if (record.status === "failed") continue;
-    const entries =
-      record.op === "create"
-        ? [record.payload]
-        : record.op === "transfer"
-          ? transferLegs(record.clientId, record.payload).map((leg) => leg.payload)
-          : [];
-    for (const { accountId, amount, nature } of entries) {
+    for (const { accountId, amount, nature } of entriesOf(record)) {
       const account = accounts.get(accountId);
       if (!account || isApplied(record, account)) continue;
       const outflow = toCents(amount, DELTA_SCALE) * (nature === "expense" ? 1 : -1);
@@ -150,6 +144,44 @@ export async function pendingDeltas(): Promise<Map<string, string>> {
 
 function isApplied(record: OutboxRecord, account: AccountRecord): boolean {
   return record.status === "done" && account.updatedAt >= (record.appliedAt ?? 0);
+}
+
+function entriesOf(record: OutboxRecord): EntryPayload[] {
+  switch (record.op) {
+    case "create":
+      return [record.payload];
+    case "transfer":
+      return transferLegs(record.clientId, record.payload).map((leg) => leg.payload);
+    default:
+      return [];
+  }
+}
+
+export async function doneClientIds(): Promise<string[]> {
+  const done = await db.outbox.filter((r) => r.status === "done").toArray();
+  return done.map((r) => r.clientId);
+}
+
+/**
+ * Removes the records of `doneBefore` that the cache has caught up with. Pass the records that were
+ * `done` before a transactions pull sent its first request, and call it inside that pull's rw
+ * transaction on `db.outbox` and `db.accounts`, after the accounts are replaced. Such a pull has the
+ * transaction if it is among the latest 100, and never will otherwise (older, deleted in Sure, or on
+ * an account the key no longer reaches), so a record is kept only while it still carries a balance
+ * delta. Updates and deletes carry none and go at once.
+ */
+export async function dropFinished(doneBefore: string[]): Promise<void> {
+  const accounts = new Map((await db.accounts.toArray()).map((a) => [a.id, a]));
+  const records = await db.outbox.bulkGet(doneBefore);
+  const finished = records.filter(
+    (record) =>
+      record?.status === "done" &&
+      entriesOf(record).every(({ accountId }) => {
+        const account = accounts.get(accountId);
+        return !account || isApplied(record, account);
+      }),
+  );
+  await db.outbox.bulkDelete(finished.map((record) => record!.clientId));
 }
 
 // Strict creation order: only the oldest unfinished record is a candidate, so a head that is backing off

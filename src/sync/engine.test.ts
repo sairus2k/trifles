@@ -47,6 +47,14 @@ function record(clientId: string) {
   return db.outbox.get(clientId);
 }
 
+// A full run pulls after it sends, and that pull drops the record once Sure has counted it.
+async function synced(clientId: string) {
+  await vi.waitFor(async () => {
+    expect(await record(clientId)).toBeUndefined();
+    expect(sure.transactions.filter((t) => t.external_id === clientId)).toHaveLength(1);
+  });
+}
+
 function count(method: string, path: string) {
   return sure.requests.filter((r) => r.method === method && r.path.startsWith(path)).length;
 }
@@ -117,7 +125,7 @@ describe("triggers", () => {
 
     start();
 
-    await vi.waitFor(async () => expect(await record(clientId)).toMatchObject({ status: "done" }));
+    await synced(clientId);
     await started();
     expect(count("GET", "/api/v1/categories")).toBe(1);
     expect(count("GET", "/api/v1/merchants")).toBe(1);
@@ -130,7 +138,7 @@ describe("triggers", () => {
 
     const clientId = await add();
 
-    await vi.waitFor(async () => expect(await record(clientId)).toMatchObject({ status: "done" }));
+    await synced(clientId);
   });
 
   test("online, visible and the timer each run a full sync", async () => {
@@ -218,7 +226,7 @@ describe("offline", () => {
 
     goOnline();
 
-    await vi.waitFor(async () => expect(await record(clientId)).toMatchObject({ status: "done" }));
+    await synced(clientId);
   });
 
   test("online ends the backoff of a record that failed while the connection was down", async () => {
@@ -232,7 +240,7 @@ describe("offline", () => {
 
     goOnline();
 
-    await vi.waitFor(async () => expect(await record(clientId)).toMatchObject({ status: "done" }));
+    await synced(clientId);
     expect(Date.now()).toBeLessThan(NOW + 60_000);
   });
 });
@@ -265,7 +273,7 @@ describe("pulls", () => {
     await started();
 
     const sent = await add();
-    await vi.waitFor(async () => expect(await record(sent)).toMatchObject({ status: "done" }));
+    await synced(sent);
     await started(2);
 
     sure.failNext(POST, { status: 500 });
@@ -309,8 +317,8 @@ describe("pause", () => {
 
     await saveSettings({ ...SETTINGS, apiKey: "new-key" });
 
-    await vi.waitFor(async () => expect(await record(second)).toMatchObject({ status: "done" }));
-    expect(await record(first)).toMatchObject({ status: "done" });
+    await synced(second);
+    await synced(first);
     expect(await readSyncConfig()).toMatchObject({ pausedAt: undefined });
   });
 
@@ -344,9 +352,8 @@ describe("recovery", () => {
 
     start();
 
-    await vi.waitFor(async () =>
-      expect(await record(clientId)).toMatchObject({ status: "done", attempts: 2 }),
-    );
+    await synced(clientId);
+    expect(postedExternalIds()).toEqual([clientId]);
   });
 
   test("a record backing off is sent when it is due, with no other trigger", async () => {
@@ -359,7 +366,7 @@ describe("recovery", () => {
 
     await vi.advanceTimersByTimeAsync(1500); // 2 s backoff with equal jitter at random 0.5
 
-    await vi.waitFor(async () => expect(await record(clientId)).toMatchObject({ status: "done" }));
+    await synced(clientId);
     expect(Date.now()).toBeLessThan(NOW + 60_000);
   });
 });

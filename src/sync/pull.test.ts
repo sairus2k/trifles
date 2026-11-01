@@ -1,10 +1,15 @@
+import { http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { FAKE_SURE_URL, createFakeSure, defaultSeed, type FakeSure } from "../../test/fake-sure";
-import { postApiV1Transactions, type PostApiV1TransactionsBody } from "../api/generated/sure";
+import {
+  deleteApiV1TransactionsId,
+  postApiV1Transactions,
+  type PostApiV1TransactionsBody,
+} from "../api/generated/sure";
 import { SureError, configureSure } from "../api/http";
 import { db, type EntryPayload } from "../db/schema";
-import { enqueue, pendingDeltas } from "./outbox";
+import { enqueue, enqueueDelete, enqueueUpdate, pendingDeltas } from "./outbox";
 import { pullRecent, pullReference } from "./pull";
 import { push } from "./push";
 
@@ -420,5 +425,189 @@ describe("pending balance delta", () => {
 
     expect(await db.outbox.toArray()).toMatchObject([{ status: "failed" }]);
     expect(await pendingDeltas()).toEqual(new Map());
+  });
+});
+
+describe("finished records", () => {
+  const coffee: EntryPayload = {
+    accountId: "acc-cash",
+    date: "2026-11-01",
+    amount: "3.50",
+    nature: "expense",
+    currency: "EUR",
+    name: "Coffee",
+    notes: null,
+    categoryId: null,
+    merchantId: null,
+  };
+  const { accountId: _, ...tea } = { ...coffee, name: "Tea" };
+
+  async function outbox() {
+    return (await db.outbox.orderBy("createdAt").toArray()).map(({ op, status }) => ({
+      op,
+      status,
+    }));
+  }
+
+  function setUpdatedAt(accountId: string, at: number) {
+    sure.accounts.find((a) => a.id === accountId)!.updated_at = new Date(at).toISOString();
+  }
+
+  test("a create stays while Sure has not counted it, though its transaction is cached", async () => {
+    await pullReference();
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    sure.pauseAccountSync();
+    await push();
+
+    await pullRecent();
+    expect(await db.transactions.filter((t) => t.externalId === clientId).count()).toBe(1);
+    expect(await outbox()).toEqual([{ op: "create", status: "done" }]);
+
+    sure.resumeAccountSync();
+    await pullRecent();
+    expect(await outbox()).toEqual([]);
+  });
+
+  test("a transfer stays until both accounts are recalculated", async () => {
+    await pullReference();
+    await enqueue({
+      op: "transfer",
+      payload: {
+        fromAccountId: "acc-card",
+        toAccountId: "acc-cash",
+        date: "2026-11-01",
+        amount: "100",
+        currency: "EUR",
+        name: "Cash advance",
+        notes: null,
+      },
+    });
+    await push();
+    setUpdatedAt("acc-cash", NOW - 1000);
+
+    await pullRecent();
+    expect(await db.transactions.count()).toBeGreaterThan(0);
+    expect(await outbox()).toEqual([{ op: "transfer", status: "done" }]);
+
+    setUpdatedAt("acc-cash", NOW);
+    await pullRecent();
+    expect(await outbox()).toEqual([]);
+  });
+
+  test("a create older than the latest 100 goes once its delta clears", async () => {
+    for (let i = 0; i < 100; i++) await serverTransaction({ name: `Newer ${i}` });
+    await pullReference();
+    // Past the second in which those writes were counted.
+    vi.setSystemTime(NOW + 1000);
+    const clientId = await enqueue({ op: "create", payload: { ...coffee, date: "2026-09-01" } });
+    sure.pauseAccountSync();
+    await push();
+
+    await pullRecent();
+    expect(await db.transactions.filter((t) => t.externalId === clientId).count()).toBe(0);
+    expect(await outbox()).toEqual([{ op: "create", status: "done" }]);
+
+    sure.resumeAccountSync();
+    await pullRecent();
+    expect(await outbox()).toEqual([]);
+  });
+
+  test("a create another client deleted in Sure goes once its delta clears", async () => {
+    await pullReference();
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    sure.pauseAccountSync();
+    await push();
+    const sent = sure.transactions.find((t) => t.external_id === clientId)!;
+    await deleteApiV1TransactionsId(sent.id);
+
+    await pullRecent();
+    expect(await outbox()).toEqual([{ op: "create", status: "done" }]);
+
+    sure.resumeAccountSync();
+    await pullRecent();
+    expect(await outbox()).toEqual([]);
+  });
+
+  test("a done update or delete goes on the next pull, which has Sure's values", async () => {
+    const edited = await serverTransaction();
+    const deleted = await serverTransaction({ name: "Lunch" });
+    await pullRecent();
+    await enqueueUpdate(edited.id, tea);
+    await enqueueDelete(deleted.id);
+    sure.pauseAccountSync();
+    await push();
+    expect(await outbox()).toEqual([
+      { op: "update", status: "done" },
+      { op: "delete", status: "done" },
+    ]);
+
+    await pullRecent();
+
+    expect(await outbox()).toEqual([]);
+    expect(await db.transactions.get(edited.id)).toMatchObject({ name: "Tea" });
+    expect(await db.transactions.get(deleted.id)).toBeUndefined();
+  });
+
+  test("a change sent while a pull is in flight stays until the next pull", async () => {
+    const edited = await serverTransaction();
+    await pullRecent();
+    await enqueueUpdate(edited.id, tea);
+    let reached!: () => void;
+    let release!: () => void;
+    const requested = new Promise<void>((resolve) => (reached = resolve));
+    const held = new Promise<void>((resolve) => (release = resolve));
+    // Holds the pull's first request, then falls through to the fake.
+    server.use(
+      http.get(
+        `${FAKE_SURE_URL}/api/v1/accounts`,
+        async () => {
+          reached();
+          await held;
+        },
+        { once: true },
+      ),
+    );
+
+    const pulling = pullRecent();
+    await requested;
+    await push();
+    release();
+    await pulling;
+    expect(await outbox()).toEqual([{ op: "update", status: "done" }]);
+
+    await pullRecent();
+    expect(await outbox()).toEqual([]);
+  });
+
+  test("pending, sending and failed records are never dropped", async () => {
+    const edited = await serverTransaction();
+    await pullRecent();
+    const kept = [
+      await enqueue({ op: "create", payload: coffee }),
+      await enqueue({ op: "create", payload: coffee }),
+      await enqueue({ op: "create", payload: coffee }),
+      await enqueueUpdate(edited.id, tea),
+    ];
+    await db.outbox.update(kept[1]!, { status: "sending" });
+    await db.outbox.update(kept[2]!, { status: "failed", attempts: 1 });
+    await db.outbox.update(kept[3]!, { status: "failed", attempts: 1 });
+    const done = await enqueueDelete("txn-elsewhere");
+    await db.outbox.update(done, { status: "done", attempts: 1 });
+
+    await pullRecent();
+
+    expect((await db.outbox.toArray()).map((r) => r.clientId).sort()).toEqual(kept.sort());
+  });
+
+  test("a failed pull drops nothing", async () => {
+    const edited = await serverTransaction();
+    await pullRecent();
+    await enqueueUpdate(edited.id, tea);
+    await push();
+    sure.failNext("GET /api/v1/transactions", { status: 500 });
+
+    await expect(pullRecent()).rejects.toThrow();
+
+    expect(await outbox()).toEqual([{ op: "update", status: "done" }]);
   });
 });

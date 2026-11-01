@@ -65,6 +65,7 @@ Sure API (/api/v1, X-Api-Key)
 1. The form validates input and writes **one outbox record** in a single Dexie transaction. The UI updates immediately through the live query.
 2. The sync engine picks the record, sends `POST /api/v1/transactions` with `external_id = clientId`, and marks the record as done on `200` or `201`, keeping the transaction's `created_at` as `appliedAt`.
 3. The engine pulls the affected account. Its balance replaces the pending delta (`pendingDeltas()`) once the account's `updated_at` is at or after `appliedAt`. Sure recalculates balances asynchronously, after it created the transaction, and renders both times on its own clock in whole seconds, so `>=` also clears a recalculation in the same second. The device clock is never compared with the server's. Only creates and transfers carry a delta: a `DELETE` answer has no server time.
+4. A recent pull that started after the record was done removes it once its delta has cleared, in the same Dexie transaction that replaces the cache. That pull has the transaction if it is among the latest 100, and never will otherwise (older, deleted in Sure, or on an account the key no longer reaches), so nothing else is waited for. A done `update` or `delete` carries no delta and goes on the first such pull.
 
 ### Local schema (Dexie)
 
@@ -97,7 +98,7 @@ Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pendi
   - A transfer resends both legs on every attempt; Sure answers `200` for the leg it already has.
 - **Editing pending records:** editing or deleting a record that has not been sent yet rewrites or removes the outbox entry instead of queuing a second operation. This is allowed only while the write certainly is not on the server: a `create` or `transfer` never attempted (a pause does not count for a `create`), or a `create` that failed with a definitive answer (`422`, `404`, or an account Sure no longer has). Anything that may have reached Sure (`sending`, retrying after an attempt, a failed transfer with one leg possibly sent, `done`) is locked: a retry with the same `external_id` would answer `200` with the old values, and a changed account would create a second transaction. Once `done`, an edit goes out as an `update`. A `failed` record of any kind can be discarded (`discardFailed()`): a failed transfer then leaves whatever leg already reached Sure, and a failed `update` or `delete` leaves the transaction as Sure has it.
 - **Editing synced transactions** enqueues `update` (full values; `PATCH` cannot change the account) or `delete`. A queued `update` or `delete` for the same transaction is overwritten instead of queuing another one, unless it is already `sending`.
-- **Pull:** a run pushes first, then pulls. `pullReference()` (accounts, categories and merchants, every page) runs once per session, on the first online run; `pullRecent()` (accounts and the latest 100 transactions) runs after a push that sent something and on every trigger except a write or a backoff wake-up. A failed pull is left to the next trigger. Each pull fetches everything first and replaces the cached tables in one Dexie transaction, so a failed pull leaves the cache as it was.
+- **Pull:** a run pushes first, then pulls. `pullReference()` (accounts, categories and merchants, every page) runs once per session, on the first online run; `pullRecent()` (accounts and the latest 100 transactions) runs after a push that sent something and on every trigger except a write or a backoff wake-up. A failed pull is left to the next trigger. Each pull fetches everything first and replaces the cached tables in one Dexie transaction, so a failed pull leaves the cache as it was. `pullRecent()` also removes the `done` records it has caught up with (see Data flow for a new transaction); `pending`, `sending` and `failed` records are never removed by sync.
 
 ### Transfers
 
@@ -182,7 +183,7 @@ src/
     schema.ts              Dexie schema and migrations
     live.ts                createLiveQuery() bridge to Solid
   sync/
-    outbox.ts              enqueue, edit and remove pending writes; claim next, mark done/failed/retry/paused
+    outbox.ts              enqueue, edit and remove pending writes; claim next, mark done/failed/retry/paused, drop finished
     push.ts                send loop, backoff, idempotency
     pull.ts                reference data and recent transactions
     settings.ts            instance URL, API key and the sync pause, kept in meta
@@ -288,7 +289,7 @@ const recent = createLiveQuery(accountId, (id) =>
 `src/features/recent/rows.ts` turns the cached transactions and the outbox into day groups; it is pure, so every rule has a unit test.
 
 - **One row per entry.** A create or transfer this app sent is matched to its pulled transaction by `external_id`; once it is `done` and pulled, the server row stands for it. The legs of a transfer show as one row, grouped by Sure's transfer id, or by our client id before Sure pairs them.
-- **Changes on top.** The newest `update` of a transaction shows its values and a `delete` hides it, while queued, sending or `done`; a failed one shows the transaction with Sure's message and can be discarded. A `done` change keeps its overlay until the outbox drops it (TASK-20), so an edit never flips back to the old values between push and pull.
+- **Changes on top.** The newest `update` of a transaction shows its values and a `delete` hides it, while queued, sending or `done`; a failed one shows the transaction with Sure's message and can be discarded. A `done` change keeps its overlay until the first pull that started after it was sent drops it, so an edit never flips back to the old values between push and pull.
 - **What a row allows.** An entry that is certainly not on the server (`isEditable()`) is rewritten or removed in the outbox. A synced transaction is edited as a full-value `update` (its account is fixed, and a category or merchant cannot be cleared) and deleted as a `delete`. A synced transfer can only be deleted, leg by leg: a changed leg would no longer match its pair. A failed transfer can only be dismissed, since one leg may be in Sure. Anything retrying, sending, or sent but not pulled yet is locked and says why.
 - **Editor and swipe.** Tapping a row opens the entry form in a `<dialog>` with a date field; an untouched amount is sent as stored, so an edit does not round extra digits. Swiping left uncovers a Delete button; the editor has one too, for keyboards.
 
@@ -312,6 +313,7 @@ Effort follows risk: most of the complexity is in the sync engine, so most of th
    - `500` then `201` → backoff works;
    - offline enqueue → `online` → push;
    - pending balance delta clears only once the account `updated_at` reaches the transaction's `created_at`, including in the same second;
+   - a `done` record leaves the outbox only on a pull that started after it was sent, and a create or transfer only once its delta has cleared, whether its transaction is cached, older than the latest 100 or deleted in Sure;
    - transfer with one leg sent and one failed → resumes correctly;
    - two concurrent sync triggers → one worker;
    - `vi.setSystemTime` at 00:30 Europe/Paris → correct local date.

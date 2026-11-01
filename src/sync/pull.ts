@@ -14,6 +14,7 @@ import {
   type SuggestionRecord,
   type TransactionRecord,
 } from "../db/schema";
+import { doneClientIds, dropFinished } from "./outbox";
 
 // Screens read only from the cache, so pull replaces it with what Sure returns. Requests come first
 // and the cache is written in one transaction after them, so a failed pull changes nothing.
@@ -49,6 +50,7 @@ export async function pullReference(): Promise<void> {
  * suggestions are rebuilt.
  */
 export async function pullRecent(): Promise<void> {
+  const doneBefore = await doneClientIds();
   const accounts = await fetchAccounts();
   // Sure lists them newest first.
   const { transactions } = ok(
@@ -56,14 +58,19 @@ export async function pullRecent(): Promise<void> {
     "/api/v1/transactions",
   );
 
-  await db.transaction("rw", [db.accounts, db.transactions, db.suggestions], async () => {
-    await db.accounts.clear();
-    await db.accounts.bulkPut(accounts);
-    await db.transactions.clear();
-    await db.transactions.bulkPut(transactions.map(toTransaction));
-    // Upserted, not replaced: a merchant that left the window keeps its last stats for autocomplete.
-    await db.suggestions.bulkPut(toSuggestions(transactions));
-  });
+  await db.transaction(
+    "rw",
+    [db.accounts, db.transactions, db.suggestions, db.outbox],
+    async () => {
+      await db.accounts.clear();
+      await db.accounts.bulkPut(accounts);
+      await dropFinished(doneBefore);
+      await db.transactions.clear();
+      await db.transactions.bulkPut(transactions.map(toTransaction));
+      // Upserted, not replaced: a merchant that left the window keeps its last stats for autocomplete.
+      await db.suggestions.bulkPut(toSuggestions(transactions));
+    },
+  );
 }
 
 async function fetchAccounts(): Promise<AccountRecord[]> {
