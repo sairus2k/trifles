@@ -1,10 +1,11 @@
 ---
 id: TASK-9
 title: 'Sync pull: reference data, recent transactions and balances'
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T15:46:00Z'
+updated_date: '2026-11-01T15:54:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -31,6 +32,25 @@ Screens read only from the local cache, so pull keeps it fresh. Sure recalculate
 - [ ] #3 The pending balance delta clears only after the account `updated_at` is newer than the send time (tested)
 - [ ] #4 `suggestions` is updated with merchant → most used category, `count` and `lastUsedAt`
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Research (Sure 131e786, src/sync, src/db/schema.ts, test/fake-sure):
+- Sure creates the transaction (created_at), then `sync_account_later`; the job ends with `account.update!(balance:, cash_balance:)`, which moves `updated_at`. Both are rendered with `iso8601` (whole seconds, server clock). `update!` does not touch `updated_at` when the balance is unchanged, so the rule only holds for a non-zero delta (always true for create and transfer).
+- A device-clock `sentAt` set in `markDone` fails twice: the recalculation can finish before the response arrives (updated_at < sentAt for good), and the phone clock may differ from the server. The POST response `created_at` is on the same clock as the account `updated_at`; an idempotent 200 returns the original one.
+- DELETE returns no server time and `Date` is not readable cross-origin (CORS), hence no delta for update/delete.
+- GET /accounts and /categories paginate (default 25, max 100); /merchants is a bare array.
+
+1. Outbox `appliedAt?: number` (epoch ms, server clock): push passes the POST `created_at` to `markDone` (transfer: the :out leg). No index, no Dexie version. Tests in push.test.ts: 201, and lose-response → 200 keeps the original time.
+2. src/sync/pull.ts `pullReference()`: accounts, categories, merchants with `per_page=100`, every page; each table replaced atomically (clear + bulkPut in one transaction). Tests: stale row removed, 30 accounts over two pages.
+3. `pullRecent()`: accounts + `GET /transactions?per_page=100`, cache replaced, amounts from `amount_decimal` only, `TransactionRecord.externalId` added. Tests: per_page=100 sent, `amount` never parsed.
+4. Suggestions rebuilt in `pullRecent()` from the pulled transactions with both merchant and category: key merchantName, most used category (tie → most recent), count, lastUsedAt = latest created_at. Merchants outside the window are kept.
+5. `pendingDeltas()` in outbox.ts: per-account decimal string (scale 4) from create/transfer that are pending/sending, or done while `account.updatedAt < appliedAt` (whole seconds, so `>=` clears). failed records add nothing. Expense lowers an asset and raises a liability. Currency scale stays in TASK-14. Tests: send at .700 with pauseAccountSync → pull → delta kept; next second, no recalculation → kept; resumeAccountSync → pull → cleared; same-second recalculation; transfer; liability; failed.
+6. README (data flow step 3, schema table, Pull rule, Testing) in the same commits. Comment on TASK-10: `pullReference()` on start, `pullRecent()` after push and on the timer.
+
+Decisions (approved 2026-11-01): server time from `created_at` instead of a device `sentAt`; delta only for create/transfer; removing done outbox records is a separate task.
+<!-- SECTION:PLAN:END -->
 
 ## Comments
 
