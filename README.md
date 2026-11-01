@@ -135,27 +135,28 @@ Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to t
 
 Pinned versions as of 2026-10-31. Solid 2 is a release candidate: **install every Solid package with an exact version**. The `latest` dist-tag of `@solidjs/web` still points to `2.0.0-rc.0`, and `solid-js@latest` is 1.x, so a plain `npm i` produces an incompatible mix.
 
-| Area                   | Package                                | Version                                           |
-| ---------------------- | -------------------------------------- | ------------------------------------------------- |
-| Language               | `typescript`                           | 7.0.2                                             |
-| Build                  | `vite`                                 | 8.3.5 (`vite-plugin-pwa` does not support Vite 9) |
-| UI                     | `solid-js`, `@solidjs/web`             | 2.0.0-rc.20                                       |
-| UI build               | `@solidjs/vite-plugin`                 | 3.0.0-next.54                                     |
-| PWA                    | `vite-plugin-pwa`                      | 2.0.0                                             |
-| Local DB               | `dexie`                                | 4.4.7                                             |
-| API client             | `orval` (fetch client)                 | 8.46.0                                            |
-| Mocks                  | `msw`, `@faker-js/faker`               | 3.0.3, 10.6.0                                     |
-| Unit / component tests | `vitest`, `@vitest/browser-playwright` | 5.0.5                                             |
-| Component testing      | `@solidjs/testing-library`             | 1.0.0-rc.2                                        |
-| IndexedDB in Node      | `fake-indexeddb`                       | 6.2.7                                             |
-| E2E                    | `@playwright/test`                     | 1.64.1                                            |
-| Lint / format          | `oxlint`, `oxfmt`                      | 1.90.0, 0.75.0 (default settings)                 |
+| Area                   | Package                                | Version                                    |
+| ---------------------- | -------------------------------------- | ------------------------------------------ |
+| Language               | `typescript`                           | 7.0.2                                      |
+| Build                  | `vite`                                 | 8.3.5 (Vitest 5.0 does not support Vite 9) |
+| UI                     | `solid-js`, `@solidjs/web`             | 2.0.0-rc.20                                |
+| UI build               | `@solidjs/vite-plugin`                 | 3.0.0-next.54                              |
+| PWA                    | hand-written service worker            | no dependency                              |
+| Local DB               | `dexie`                                | 4.4.7                                      |
+| API client             | `orval` (fetch client)                 | 8.46.0                                     |
+| Mocks                  | `msw`, `@faker-js/faker`               | 3.0.3, 10.6.0                              |
+| Unit / component tests | `vitest`, `@vitest/browser-playwright` | 5.0.5                                      |
+| Component testing      | `@solidjs/testing-library`             | 1.0.0-rc.2                                 |
+| IndexedDB in Node      | `fake-indexeddb`                       | 6.2.7                                      |
+| E2E                    | `@playwright/test`                     | 1.64.1                                     |
+| Lint / format          | `oxlint`, `oxfmt`                      | 1.90.0, 0.75.0 (default settings)          |
 
 ### Why these choices
 
 - **Dexie instead of TanStack DB.** Three entities and one write type do not justify a reactive collection engine that is still pre-1.0. Dexie gives storage and live queries; the outbox is ~200 lines we fully control.
 - **orval.** Works with TypeScript 7 out of the box (its core does not use the compiler API), produces a single file, and types responses as a union discriminated by status, which maps directly onto outbox handling. `openapi-typescript` and the current stable `@hey-api/openapi-ts` require the TypeScript 5/6 compiler API and break on TypeScript 7.
 - **Solid 2.** A small project with almost no ecosystem dependencies is a good place to adopt it early.
+- **A hand-written service worker instead of `vite-plugin-pwa` or Serwist.** The worker only precaches the app shell and serves `index.html` for navigations; data lives in Dexie, so no runtime caching is needed. Prototypes of both options (2026-11-01) passed the same offline E2E suite: Serwist added 19 packages and a 10 kB (gzip) `sw.js`, the hand-written worker is ~75 lines (worker plus a small Vite plugin that injects the precache list and a content hash) and a 0.8 kB `sw.js`. `vite-plugin-pwa` pulls in ~266 packages through `workbox-build` and pins Vite to 8.
 
 ## Project structure
 
@@ -182,6 +183,9 @@ src/
     entry/  recent/  balances/  settings/
   app.tsx
   main.tsx
+  sw.ts                    service worker: precache the shell, offline navigation
+public/
+  manifest.webmanifest
 test/
   fake-sure/               stateful MSW fake of the Sure API
 e2e/
