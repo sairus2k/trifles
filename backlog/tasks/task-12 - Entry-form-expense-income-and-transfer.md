@@ -4,6 +4,7 @@ title: 'Entry form: expense, income and transfer'
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
+updated_date: '2026-11-01T15:18:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -30,3 +31,16 @@ The main job of the app: capture a transaction in under five seconds, even offli
 - [ ] #5 Submitting writes to the outbox and works offline
 - [ ] #6 Component tests cover sign per tab, calculator, sticky account/category and merchant pre-fill
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: @claude
+created: 2026-11-01T15:18:00Z
+
+---
+
+Finding from TASK-6: `POST /api/v1/merchants` is a CSV import (multipart `file`, see merchants_controller.rb and `PostApiV1MerchantsBody`), not a way to create one merchant. README → Sure API notes lists it under reference data, which is misleading. A merchant name that is not in the cache cannot be created through the API before the transaction is sent; decide here what the form does with it (for example only send `merchant_id` for known merchants and keep a new name in the transaction `name`), and fix the README line.
+
+---
+<!-- COMMENTS:END -->
