@@ -38,6 +38,7 @@ The lefthook pre-commit hook (lint, format, typecheck, tests) is the only automa
 
 - **Solid 2, not Solid 1.** No `createResource`, `Suspense`, `ErrorBoundary`, `batch` or single-argument `createEffect`. Use `<Loading>`, `<Errored>`, `createEffect(compute, apply)` and `flush()`. Check APIs at https://v2.solidjs.com/migration/from-solid-1.
 - **Install every Solid package with an exact version** (see README → Tech stack). `solid-js@latest` is 1.x, so a plain `npm i` produces an incompatible mix.
+- Tailwind scans only `src/**/*.tsx` (see `src/index.css`). Write whole class names (no `` `bg-${tone}` ``), use the semantic color tokens (the default palette is removed) and no `dark:` variants: the tokens switch with the system scheme.
 - TypeScript 7: `openapi-typescript` and stable `@hey-api/openapi-ts` break on it, so use orval. kubb 5 was compared and rejected (multi-file runtime, no mutator; see README → Why these choices). Vitest 5.0 does not support Vite 9, so stay on Vite 8.
 - Generated functions only type the statuses the spec declares. `sureFetch` throws `SureError` for 401, 429, 5xx, non-JSON bodies and network failures, so catch it alongside the returned union; don't add those statuses to the union by hand.
 - The service worker is hand-written (`src/sw.ts`). Don't add `vite-plugin-pwa`, Workbox or Serwist (see README → Why these choices).

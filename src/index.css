@@ -1,0 +1,50 @@
+/* Only components are scanned: automatic detection also reads the README, backlog and sync code,
+   and every word there that looks like a class (block, table, fixed…) would land in the CSS. */
+@import "tailwindcss" source(none);
+@source "./**/*.tsx";
+@source not "./**/*.test.tsx";
+
+/* Only these colors exist, so every screen uses the same palette and switches with the system
+   scheme without `dark:` variants. */
+@theme {
+  --color-*: initial;
+  --color-surface: light-dark(#ffffff, #0f1115);
+  --color-surface-raised: light-dark(#f3f4f6, #1a1d23);
+  --color-ink: light-dark(#111827, #f3f4f6);
+  --color-ink-muted: light-dark(#4b5563, #9ca3af);
+  --color-line: light-dark(#d1d5db, #374151);
+  --color-accent: light-dark(#1d4ed8, #60a5fa);
+  --color-on-accent: light-dark(#ffffff, #0f1115);
+  --color-danger: light-dark(#b91c1c, #f87171);
+  --color-danger-surface: light-dark(#fef2f2, #2a1416);
+  --color-warning: light-dark(#92400e, #fbbf24);
+  --color-warning-surface: light-dark(#fffbeb, #2a2110);
+}
+
+/* env() insets are 0 unless the viewport meta has viewport-fit=cover. Sides and bottom keep the
+   larger of the normal padding and the inset (landscape notch, home indicator); the top adds them,
+   because the inset there is the status bar itself. */
+@utility pt-safe {
+  padding-top: calc(env(safe-area-inset-top) + --spacing(3));
+}
+@utility pb-safe {
+  padding-bottom: max(--spacing(4), env(safe-area-inset-bottom));
+}
+@utility px-safe {
+  padding-left: max(--spacing(4), env(safe-area-inset-left));
+  padding-right: max(--spacing(4), env(safe-area-inset-right));
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}

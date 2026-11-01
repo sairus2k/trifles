@@ -148,6 +148,7 @@ Pinned versions as of 2026-10-31. Solid 2 is a release candidate: **install ever
 | Build                  | `vite`                                 | 8.3.5 (Vitest 5.0 does not support Vite 9) |
 | UI                     | `solid-js`, `@solidjs/web`             | 2.0.0-rc.20                                |
 | UI build               | `@solidjs/vite-plugin`                 | 3.0.0-next.54                              |
+| Styling                | `tailwindcss`, `@tailwindcss/vite`     | 4.3.3                                      |
 | PWA                    | hand-written service worker            | no dependency                              |
 | Local DB               | `dexie`                                | 4.4.7                                      |
 | API client             | `orval` (fetch client)                 | 8.46.0                                     |
@@ -156,12 +157,13 @@ Pinned versions as of 2026-10-31. Solid 2 is a release candidate: **install ever
 | Component testing      | `@solidjs/testing-library`             | 1.0.0-rc.2                                 |
 | IndexedDB in Node      | `fake-indexeddb`                       | 6.2.7                                      |
 | E2E                    | `@playwright/test`                     | 1.64.1                                     |
-| Lint / format          | `oxlint`, `oxfmt`                      | 1.90.0, 0.75.0 (default settings)          |
+| Lint / format          | `oxlint`, `oxfmt`                      | 1.90.0, 0.75.0 (Tailwind class sorting on) |
 
 ### Why these choices
 
 - **Dexie instead of TanStack DB.** Three entities and one write type do not justify a reactive collection engine that is still pre-1.0. Dexie gives storage and live queries; the outbox is ~200 lines we fully control.
 - **orval.** Works with TypeScript 7 out of the box (its core does not use the compiler API), produces a single file, and types responses as a union discriminated by status, which maps directly onto outbox handling. `openapi-typescript` and the current stable `@hey-api/openapi-ts` require the TypeScript 5/6 compiler API and break on TypeScript 7. kubb 5 was run on the same spec and tags (2026-11-01) and also passed `tsc` 7, with a smaller install (~26 MB and 59 packages, against ~95 MB and 82 packages for orval, which installs every generator plugin and two nested copies of `typescript@6.0.3`). It lost on the output: it copies its own runtime client into three extra files (99 KB in total, against 35 KB for orval's single file), it has no mutator, so the content-type check would live in a custom `transport`, and its "optional" `@kubb/parser-ts` peer is required: without it kubb reports success and writes functions with no declarations. It also sends telemetry unless `KUBB_DISABLE_TELEMETRY=1` is set. The extra install size is dev-only and never reaches the bundle.
+- **Tailwind 4 through `@tailwindcss/vite`.** Every screen gets the same tokens instead of inventing its own styles. It runs only at build time and loads no script, so the rule against third-party and CDN scripts holds (the Play CDN script is never used). Its CSS holds only the classes the app uses: `src/index.css` limits scanning to the components, because automatic detection also reads the README, the backlog and the sync code and turns words like `block` or `table` into CSS. The theme keeps only semantic colors (`--color-*: initial`), each a `light-dark()` pair, so the app follows the system scheme with no `dark:` variants; lightningcss compiles `light-dark()` down for older Safari. The install is dev-only (7 packages plus platform binaries, ~14 MB, with Tailwind's own pinned `lightningcss`). oxfmt sorts the classes with the same algorithm as `prettier-plugin-tailwindcss`.
 - **Solid 2.** A small project with almost no ecosystem dependencies is a good place to adopt it early.
 - **A hand-written service worker instead of `vite-plugin-pwa` or Serwist.** The worker only precaches the app shell and serves `index.html` for navigations; data lives in Dexie, so no runtime caching is needed. Prototypes of both options (2026-11-01) passed the same offline E2E suite: Serwist added 19 packages and a 10 kB (gzip) `sw.js`, the hand-written worker is ~75 lines (worker plus a small Vite plugin that injects the precache list and a content hash) and a 0.8 kB `sw.js`. `vite-plugin-pwa` pulls in ~266 packages through `workbox-build` and pins Vite to 8.
 
@@ -191,6 +193,7 @@ src/
     entry/  recent/  balances/  settings/
   app.tsx
   main.tsx
+  index.css                Tailwind entry: sources, theme tokens, safe-area utilities
   sw.ts                    service worker: precache the shell, offline navigation
 public/
   manifest.webmanifest
