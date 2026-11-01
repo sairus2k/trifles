@@ -4,13 +4,14 @@ title: 'Entry form: expense, income and transfer'
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T16:50:00Z'
+updated_date: '2026-11-01T16:59:00Z'
 labels: []
 milestone: m-0
 dependencies:
   - TASK-4
   - TASK-7
   - TASK-9
+  - TASK-22
 priority: high
 type: feature
 ordinal: 12000
