@@ -204,6 +204,7 @@ public/
   icon.svg, *.png          app icons; the PNGs are rendered from icon.svg
 test/
   fake-sure/               stateful MSW fake of the Sure API
+  contract/                contract tests against a real Sure in Docker
 e2e/
 ```
 
@@ -312,11 +313,14 @@ Effort follows risk: most of the complexity is in the sync engine, so most of th
    - transfer with one leg sent and one failed → resumes correctly;
    - two concurrent sync triggers → one worker;
    - `vi.setSystemTime` at 00:30 Europe/Paris → correct local date.
-2. **Contract tests** against a real Sure in Docker, on the same version as your instance. Run before upgrading Sure, not on every commit:
-   - repeated `external_id` returns `200`;
-   - `nature: "expense"` stores a positive amount;
-   - two opposite transactions are auto-matched into a transfer;
-   - balance update latency.
+2. **Contract tests** against a real Sure in Docker (`test/contract/`), on the commit pinned in `spec/README.md`. They check that the fake's assumptions hold. Run `npm run test:contract` before upgrading Sure, not on every commit: it needs Docker, and the first run pulls the Sure image (about 1 GB). A Vitest `globalSetup` starts `ghcr.io/we-promise/sure:sha-<commit>` with its worker, Postgres and Redis on `127.0.0.1:3999` (`SURE_CONTRACT_PORT` changes the port), seeds a user, a `read_write` and a `read` key, three manual USD accounts, a category and a merchant with `rails runner` (the API cannot create them), and removes the stack afterwards. `KEEP_SURE=1` leaves it running for inspection. The suite has its own config (`vitest.contract.config.ts`), so `npm test` and the pre-commit hook never start Docker. It checks:
+   - repeated `external_id` returns `200` with the existing transaction;
+   - `nature: "expense"` stores a positive amount, `"income"` a negative one;
+   - an expense and an income of the same amount on two same-currency manual accounts are auto-matched into a transfer;
+   - `PATCH` keeps `null` fields, blank `category_id` / `merchant_id` and `currency`, and clears notes with `""`; `PATCH` and `DELETE` of an unknown transaction answer `404 not_found`;
+   - a create for an unknown account answers `500`;
+   - a read-only key answers `403` to a create, and to the Settings probe (`DELETE` of a random id) where a `read_write` key gets `404`;
+   - balance update latency: the time from a `201` until the account's `updated_at` reaches the transaction's `created_at`, printed as min / median / max over five writes.
 3. **Components** in Vitest browser mode with Playwright (real IndexedDB): entry form (sign, calculator, sticky account/category), pending rows. The Dexie schema and `createLiveQuery()` are tested here too: the node project resolves `solid-js` to its non-reactive server build. Browser test files share one origin, and `schema.browser.test.tsx` deletes the app's `db`, so they run one file at a time (`fileParallelism: false`) and a test that is not about the app's `db` opens its own uniquely named database. `@solidjs/testing-library` registers no automatic cleanup without Vitest globals, so a file that renders components calls `cleanup()` in `afterEach`. A browser test that needs Sure starts `setupWorker(...sure.handlers)` from `msw/browser`; the browser project serves the worker script through `msw/vite` in `worker-only` mode (see `test/fake-sure/fake-sure.browser.test.tsx`).
 4. **E2E** with Playwright against `vite preview` (`e2e/pwa.spec.ts`): install the service worker → `context.setOffline(true)` → reload → app loads; enter offline → pending row and `≈` balance → back online → synced; an offline deep link opens the app while an offline `/api/` request stays a network error; precached files are all on the app's origin. A second build under `/quick/` (the `sub-path` project, `e2e/sub-path.spec.ts`) checks that the worker and the manifest cover only that path and an offline navigation to the root is left to the network. `e2e/update.spec.ts` rewrites the version in the served `dist/sw.js` (the browser's update check bypasses `page.route`) and expects the new worker to replace the cached shell after a reload. `e2e/fake-sure.ts` answers `https://sure.test` with the stateful fake through `context.route`. A route keeps answering while the context is offline, so the helper's `setOffline()` makes it abort too; and `route.fulfill` skips the browser's CORS check, so `e2e/cors.spec.ts` starts a real server on a second origin to check that Settings tells a CORS block from an unreachable host. `e2e/style.spec.ts` checks what only the built CSS shows: no request leaves the origin, every control is at least 44 px tall, and the colors follow the system scheme.
 5. **Manual checklist on a real iPhone:** install to home screen, storage persistence after several days, decimal keyboard and operator row.
@@ -337,6 +341,7 @@ npm run lint         # oxlint
 npm run format       # oxfmt (format:check to verify only)
 npm test             # Vitest: Node and browser-mode projects
 npm run test:e2e     # Playwright against `vite preview`
+npm run test:contract # contract tests against a real Sure in Docker
 npm run build        # static build in dist/
 ```
 
@@ -361,7 +366,7 @@ git -C ../sure show <commit>:docs/api/openapi.yaml > spec/sure-openapi.yaml
 npm run gen:api
 ```
 
-Record the Sure commit in `spec/README.md`. Keep the spec byte for byte as upstream (it is excluded from oxfmt).
+Record the Sure commit in `spec/README.md`, then run `npm run test:contract` against it. Keep the spec byte for byte as upstream (it is excluded from oxfmt).
 
 ## Deployment
 

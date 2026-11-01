@@ -16,7 +16,7 @@ git -C ../sure show <commit>:docs/api/openapi.yaml > spec/sure-openapi.yaml
 npm run gen:api
 ```
 
-Then update the table above.
+Then update the table above and run `npm run test:contract`: it starts the image of the commit in the table and checks that the fake in `test/fake-sure/` still matches it.
 
 ## Known issues
 
