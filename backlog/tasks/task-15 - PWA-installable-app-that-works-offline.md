@@ -1,10 +1,11 @@
 ---
 id: TASK-15
 title: 'PWA: installable app that works offline'
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T18:48:00Z'
+updated_date: '2026-11-01T19:11:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -38,6 +39,41 @@ The app is used from the phone home screen, often with no connection. When it is
 <!-- DOD:BEGIN -->
 - [ ] #1 Manual checklist on a real iPhone passed: install to home screen, storage persists after several days, decimal keyboard and operator row work
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+Research 2026-11-01 (Playwright 1.64.1 + Chromium, throwaway prototype in a scratchpad):
+- With a service worker that returns without respondWith for other origins, context.route still intercepts the app's requests to Sure.
+- context.route keeps fulfilling while context.setOffline(true): the fake Sure must abort its own requests while the test is offline, or 'offline' only means navigator.onLine === false.
+- route.fulfill skips the CORS check (a response without Access-Control-Allow-Origin is readable), so a CORS E2E needs a real second-origin HTTP server, not page.route.
+- The service worker update check (registration.update()) is not routed: an update E2E has to change the served sw.js on disk.
+- msw 3 exports getResponse(handlers, request), so test/fake-sure handlers can answer Playwright routes unchanged.
+- No dynamic import() in src: the build is one entry chunk, so deleting old shell caches on activate cannot break a running page.
+
+1. Manifest and icons (commit: feat: add the web app manifest and icons)
+   - public/manifest.webmanifest: name, short_name, display standalone, start_url "./" and scope "./" (relative to the manifest, so they follow the path the app is served from), theme_color/background_color = light --color-surface (#ffffff), icons 192, 512 and 512 maskable.
+   - public/icon.svg plus PNGs (192, 512, maskable 512, apple-touch-icon 180) rendered once from the SVG; the render script is not committed.
+   - index.html: link rel=manifest, icon, apple-touch-icon; theme-color twice with media (prefers-color-scheme: light/dark) repeating the --color-surface literals (#ffffff / #0f1115); apple-mobile-web-app-status-bar-style "default" (black-translucent draws white text on the light theme); comment on why the literals repeat src/index.css.
+2. Service worker (commit: feat: precache the app shell in a hand-written service worker)
+   - src/sw.ts: classic script, no imports/exports; declare const PRECACHE: string[] and VERSION: string; const sw = self as unknown as ServiceWorkerGlobalScope. install: caches.open('shell-' + VERSION), addAll(PRECACHE as Requests with cache: 'reload'), skipWaiting. activate: delete other shell-* caches, clients.claim. fetch: only GET; same-origin navigations inside the registration scope, except <scope>api/, answer the cached index.html (network fallback); precached URLs answer from the cache; everything else (Sure, other origins) is not touched (no respondWith).
+   - Vite plugin (sw-plugin.ts at the root, included by tsconfig's *.ts): apply 'build', generateBundle with order 'post'; PRECACHE = bundle file names (no sw.js, no maps) + public/ files, as paths relative to sw.js so any base works; VERSION = short sha256 over their contents; transpile src/sw.ts with transformWithOxc, prepend the two consts, emitFile asset sw.js.
+   - tsconfig.json excludes src/sw.ts; tsconfig.sw.json (lib ESNext + WebWorker, include src/sw.ts); npm run typecheck runs both.
+   - src/main.tsx: register only when import.meta.env.PROD, at BASE_URL + 'sw.js' with scope BASE_URL.
+   - README: Project structure (sw-plugin.ts, tsconfig.sw.json), Deployment (scope comes from the build base / manifest location), Mobile details (status bar and theme-color).
+3. Offline E2E (commit: test: load and enter transactions offline), e2e/pwa.spec.ts plus a helper e2e/fake-sure.ts that answers context.route('https://sure.test/**') with createFakeSure().handlers through getResponse and aborts with 'internetdisconnected' while the test is offline.
+   - AC #2: first visit → wait for navigator.serviceWorker.ready and a controller → setOffline(true) → reload → Settings heading visible.
+   - AC #3: save Settings (https://sure.test + key) online → wait for a cached account in the form → offline → Add expense through the form (Amount, Merchant) → row in "Recent transactions" marked "Pending", Balances row shows "≈" → setOffline(false) → the fake received POST /api/v1/transactions, "Pending" and "≈" are gone.
+   - Offline deep link (/some/path) loads the shell; offline fetch to /api/v1/accounts on the app origin is a network error, not index.html.
+   - AC #4: with the service worker installed, a reload requests only the app origin, and every PRECACHE entry is relative (no scheme).
+4. Run npm run test:e2e (not part of the pre-commit hook) plus the hook checks; README → Testing lists the new E2E cases.
+5. Finish: hand the iPhone checklist (DoD) to the user. It needs the build on HTTPS; there is no deploy task yet. Checklist: install to home screen; airplane mode → app opens; storage (an unsent entry) survives several days; decimal keyboard + operator row; keyboard stays open after Add expense and after an operator button; swipe left uncovers Delete without scrolling the page; the edit dialog opens over the form with the decimal keyboard; status bar text readable in standalone, light and dark; header clears the notch, last button clears the home indicator.
+
+Scope added by the user 2026-11-01 (beyond the AC), each its own commit after step 3:
+6. Non-root base (commit: test: serve the app under a sub-path): a second Playwright webServer builds with --base=/quick/ into its own outDir and previews it on another port; a project for it checks: the registration scope is /quick/, an offline reload of /quick/ loads the app, the manifest and icons resolve under /quick/, and an offline navigation to / (where Sure would live) is not answered by the worker. Fix whatever the sub-path breaks (index.html links, PRECACHE paths) in a separate fix: commit.
+7. CORS (commit: test: report a Sure that blocks CORS), from TASK-11 comment #1: a node:http server started by the test on a second origin answers /api/v1/accounts without CORS headers; enter it in Settings → expect "… answered, but the browser blocked the request (CORS)", not "Cannot reach …". page.route cannot do this: route.fulfill skips the CORS check.
+8. Worker update (commit: test: a new build replaces the cached shell): in a serial describe, rewrite VERSION in the served dist/sw.js (restore it in finally); after reloads the new worker controls the page, caches.keys() holds only the new shell-* cache, and the app still loads offline. route cannot replace sw.js for registration.update().
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
