@@ -13,10 +13,14 @@ import {
   enqueue,
   enqueueDelete,
   enqueueUpdate,
+  headRetryAt,
   markDone,
   markFailed,
   markRetry,
+  onOutboxWrite,
   removePending,
+  requeueStuck,
+  retryNow,
   transferLegs,
   type PendingWrite,
 } from "./outbox";
@@ -410,5 +414,63 @@ describe("status transitions", () => {
     await expect(mark(clientId)).rejects.toThrow(/not being sent/);
     await expect(mark("gone")).rejects.toThrow(/not being sent/);
     expect(await db.outbox.get(clientId)).toEqual(before);
+  });
+});
+
+describe("sync engine hooks", () => {
+  test("every write that has something to send notifies after it commits", async () => {
+    const committed: number[] = [];
+    const unsubscribe = onOutboxWrite(() => void db.outbox.count().then((n) => committed.push(n)));
+
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    await editPending(clientId, { op: "create", payload: { ...coffee, amount: "4" } });
+    await enqueueUpdate("tx-1", changes);
+    await enqueueDelete("tx-2");
+    await removePending(clientId);
+    unsubscribe();
+    await enqueue({ op: "create", payload: coffee });
+
+    await vi.waitFor(() => expect(committed).toEqual([1, 1, 2, 3]));
+  });
+
+  test("headRetryAt is when a backing-off head is due, and nothing otherwise", async () => {
+    expect(await headRetryAt()).toBeUndefined();
+    const head = await enqueue({ op: "create", payload: coffee });
+    expect(await headRetryAt()).toBeUndefined();
+
+    await setState(head, { attempts: 1, nextAttemptAt: NOW + 5000 });
+    expect(await headRetryAt()).toBe(NOW + 5000);
+
+    await setState(head, { status: "sending" });
+    expect(await headRetryAt()).toBeUndefined();
+  });
+
+  test("requeueStuck puts a sending record back with the attempt counted", async () => {
+    const stuck = await enqueue({ op: "create", payload: coffee });
+    const next = await enqueue({ op: "create", payload: coffee });
+    await setState(stuck, { status: "sending", attempts: 2, nextAttemptAt: NOW - 1000 });
+
+    await requeueStuck();
+
+    expect(await db.outbox.get(stuck)).toMatchObject({
+      status: "pending",
+      attempts: 3,
+      nextAttemptAt: 0,
+    });
+    expect(await db.outbox.get(next)).toMatchObject({ status: "pending", attempts: 0 });
+    expect(await claimNext()).toMatchObject({ clientId: stuck });
+  });
+
+  test("retryNow ends the backoff of pending records only", async () => {
+    const backingOff = await enqueue({ op: "create", payload: coffee });
+    const failed = await enqueue({ op: "create", payload: coffee });
+    await setState(backingOff, { attempts: 3, nextAttemptAt: NOW + 60_000 });
+    await setState(failed, { status: "failed", attempts: 1, nextAttemptAt: NOW + 2000 });
+
+    await retryNow();
+
+    expect(await db.outbox.get(backingOff)).toMatchObject({ attempts: 3, nextAttemptAt: 0 });
+    expect(await db.outbox.get(failed)).toMatchObject({ nextAttemptAt: NOW + 2000 });
+    expect(await claimNext()).toMatchObject({ clientId: backingOff });
   });
 });

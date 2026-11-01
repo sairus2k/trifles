@@ -30,8 +30,26 @@ export class OutboxLockedError extends Error {
   }
 }
 
-export function enqueue(write: PendingWrite): Promise<string> {
-  return db.transaction("rw", db.outbox, () => add(write));
+const writeListeners = new Set<() => void>();
+
+/**
+ * Calls `listener` after every committed write that has something to send, so the sync engine
+ * sends it at once without depending on the UI to ask (outbox cannot import the engine, which
+ * imports push). Returns the unsubscribe function.
+ */
+export function onOutboxWrite(listener: () => void): () => void {
+  writeListeners.add(listener);
+  return () => writeListeners.delete(listener);
+}
+
+function notifyWrite() {
+  for (const listener of writeListeners) listener();
+}
+
+export async function enqueue(write: PendingWrite): Promise<string> {
+  const clientId = await db.transaction("rw", db.outbox, () => add(write));
+  notifyWrite();
+  return clientId;
 }
 
 export async function editPending(clientId: string, write: PendingWrite): Promise<void> {
@@ -39,6 +57,7 @@ export async function editPending(clientId: string, write: PendingWrite): Promis
     const record = await editable(clientId);
     await db.outbox.put({ ...record, ...write, ...QUEUED });
   });
+  notifyWrite();
 }
 
 export async function removePending(clientId: string): Promise<void> {
@@ -125,15 +144,49 @@ function isApplied(record: OutboxRecord, account: AccountRecord): boolean {
 // or still sending holds the rest of the queue.
 export function claimNext(): Promise<OutboxRecord | undefined> {
   return db.transaction("rw", db.outbox, async () => {
-    const head = await db.outbox
-      .orderBy("createdAt")
-      .filter((r) => r.status === "pending" || r.status === "sending")
-      .first();
+    const head = await queueHead();
     if (head?.status !== "pending" || head.nextAttemptAt > Date.now()) return undefined;
     const claimed: OutboxRecord = { ...head, status: "sending" };
     await db.outbox.put(claimed);
     return claimed;
   });
+}
+
+/** When the head of the queue is due again, if it is backing off. */
+export async function headRetryAt(): Promise<number | undefined> {
+  const head = await queueHead();
+  return head?.status === "pending" && head.nextAttemptAt > Date.now()
+    ? head.nextAttemptAt
+    : undefined;
+}
+
+function queueHead(): Promise<OutboxRecord | undefined> {
+  return db.outbox
+    .orderBy("createdAt")
+    .filter((r) => r.status === "pending" || r.status === "sending")
+    .first();
+}
+
+/**
+ * Puts records left `sending` back in the queue. Call it only while holding the sync lock: then no
+ * push is running, so such a record was abandoned by a tab that closed or crashed mid-request. That
+ * request may have reached Sure, so it counts as an attempt.
+ */
+export async function requeueStuck(): Promise<void> {
+  await db.outbox
+    .filter((r) => r.status === "sending")
+    .modify((r) => {
+      r.status = "pending";
+      r.attempts++;
+      r.nextAttemptAt = 0;
+    });
+}
+
+/** Ends every backoff, for when the connection comes back: the failures were most likely offline. */
+export async function retryNow(): Promise<void> {
+  await db.outbox
+    .filter((r) => r.status === "pending" && r.nextAttemptAt > 0)
+    .modify({ nextAttemptAt: 0 });
 }
 
 export function markDone(clientId: string, appliedAt?: number): Promise<void> {
@@ -186,8 +239,8 @@ async function editable(clientId: string): Promise<OutboxRecord> {
 
 // A full-value PATCH and a DELETE are idempotent, so a queued operation on the same transaction is
 // overwritten whatever its attempts; only one in flight keeps its place and gets a successor.
-function replaceQueued(write: SyncedWrite): Promise<string> {
-  return db.transaction("rw", db.outbox, async () => {
+async function replaceQueued(write: SyncedWrite): Promise<string> {
+  const clientId = await db.transaction("rw", db.outbox, async () => {
     const queued = await db.outbox
       .filter(
         (r) =>
@@ -200,4 +253,6 @@ function replaceQueued(write: SyncedWrite): Promise<string> {
     await db.outbox.put({ ...queued, ...write, ...QUEUED });
     return queued.clientId;
   });
+  notifyWrite();
+  return clientId;
 }
