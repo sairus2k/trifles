@@ -84,7 +84,7 @@ Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pendi
 
 - **Triggers:** app start, `online`, `visibilitychange → visible`, after every enqueue, and a timer while the app is open. Do **not** rely on the Background Sync API (not available on iOS).
 - **One worker:** wrap the push loop in `navigator.locks.request('outbox', …)` so only one tab processes the queue.
-- **Sequential:** records are sent one at a time, in creation order.
+- **Sequential:** records are sent one at a time, in creation order. A head record that is backing off or still `sending` holds the rest of the queue; `failed` and `done` records do not.
 - **Idempotency:** every create sends `external_id` (the client UUID) and `source: "sure-quick-entry"`. Sure returns `200` with the existing transaction if that account already has one with that pair (the key is scoped to the account), so **retrying after any ambiguous failure is safe**.
 - **Error handling:**
   - `200` / `201` → done.
@@ -172,7 +172,7 @@ src/
     schema.ts              Dexie schema and migrations
     live.ts                createLiveQuery() bridge to Solid
   sync/
-    outbox.ts              enqueue, edit and remove pending writes; next, mark done/failed
+    outbox.ts              enqueue, edit and remove pending writes; claim next, mark done/failed/retry
     push.ts                send loop, backoff, idempotency
     pull.ts                reference data and recent transactions
     engine.ts              triggers, Web Lock, lifecycle

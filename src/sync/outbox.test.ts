@@ -8,10 +8,14 @@ import {
 } from "../db/schema";
 import {
   OutboxLockedError,
+  claimNext,
   editPending,
   enqueue,
   enqueueDelete,
   enqueueUpdate,
+  markDone,
+  markFailed,
+  markRetry,
   removePending,
   transferLegs,
   type PendingWrite,
@@ -309,5 +313,102 @@ describe("synced transactions", () => {
     await enqueueDelete("tx-2");
 
     expect(await db.outbox.count()).toBe(2);
+  });
+});
+
+describe("status transitions", () => {
+  test("claimNext marks the oldest pending record sending", async () => {
+    const first = await enqueue({ op: "create", payload: coffee });
+    await enqueue({ op: "transfer", payload: withdrawal });
+
+    const claimed = await claimNext();
+
+    expect(claimed).toMatchObject({ clientId: first, status: "sending" });
+    expect(await db.outbox.get(first)).toEqual(claimed);
+  });
+
+  test("a backing-off head holds the queue until it is due", async () => {
+    const first = await enqueue({ op: "create", payload: coffee });
+    await enqueue({ op: "create", payload: coffee });
+    await setState(first, { attempts: 1, nextAttemptAt: NOW + 5000 });
+
+    expect(await claimNext()).toBeUndefined();
+
+    vi.setSystemTime(NOW + 5000);
+    expect(await claimNext()).toMatchObject({ clientId: first });
+  });
+
+  test("failed and done records do not hold the queue", async () => {
+    const failed = await enqueue({ op: "create", payload: coffee });
+    const done = await enqueue({ op: "create", payload: coffee });
+    const next = await enqueue({ op: "create", payload: coffee });
+    await setState(failed, { status: "failed", attempts: 1, lastError: "Invalid" });
+    await setState(done, { status: "done", attempts: 1 });
+
+    expect(await claimNext()).toMatchObject({ clientId: next });
+  });
+
+  test("nothing is claimed while a record is sending", async () => {
+    await enqueue({ op: "create", payload: coffee });
+    await enqueue({ op: "create", payload: coffee });
+    await claimNext();
+
+    expect(await claimNext()).toBeUndefined();
+  });
+
+  test("nothing is claimed from an empty queue", async () => {
+    expect(await claimNext()).toBeUndefined();
+  });
+
+  test("a record moves through retry, failure and back, keeping its bookkeeping", async () => {
+    const clientId = await enqueue({ op: "create", payload: coffee });
+
+    await claimNext();
+    await markRetry(clientId, "Network error", NOW + 2000);
+    expect(await db.outbox.get(clientId)).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      nextAttemptAt: NOW + 2000,
+      lastError: "Network error",
+    });
+
+    vi.setSystemTime(NOW + 2000);
+    await claimNext();
+    await markFailed(clientId, "Amount is invalid");
+    expect(await db.outbox.get(clientId)).toMatchObject({
+      status: "failed",
+      attempts: 2,
+      nextAttemptAt: NOW + 2000,
+      lastError: "Amount is invalid",
+    });
+  });
+
+  test("markDone finishes a record and clears its error", async () => {
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    await claimNext();
+    await markRetry(clientId, "HTTP 500", NOW);
+    await claimNext();
+
+    await markDone(clientId);
+
+    expect(await db.outbox.get(clientId)).toMatchObject({
+      status: "done",
+      attempts: 2,
+      lastError: null,
+    });
+    expect(await claimNext()).toBeUndefined();
+  });
+
+  test.each([
+    ["markDone", (id: string) => markDone(id)],
+    ["markFailed", (id: string) => markFailed(id, "Invalid")],
+    ["markRetry", (id: string) => markRetry(id, "HTTP 500", NOW)],
+  ])("%s only moves a record that is sending", async (_, mark) => {
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    const before = await db.outbox.get(clientId);
+
+    await expect(mark(clientId)).rejects.toThrow(/not being sent/);
+    await expect(mark("gone")).rejects.toThrow(/not being sent/);
+    expect(await db.outbox.get(clientId)).toEqual(before);
   });
 });

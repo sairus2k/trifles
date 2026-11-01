@@ -79,6 +79,46 @@ export function transferLegs(
   ];
 }
 
+// Strict creation order: only the oldest unfinished record is a candidate, so a head that is backing off
+// or still sending holds the rest of the queue.
+export function claimNext(): Promise<OutboxRecord | undefined> {
+  return db.transaction("rw", db.outbox, async () => {
+    const head = await db.outbox
+      .orderBy("createdAt")
+      .filter((r) => r.status === "pending" || r.status === "sending")
+      .first();
+    if (head?.status !== "pending" || head.nextAttemptAt > Date.now()) return undefined;
+    const claimed: OutboxRecord = { ...head, status: "sending" };
+    await db.outbox.put(claimed);
+    return claimed;
+  });
+}
+
+export function markDone(clientId: string): Promise<void> {
+  return finishAttempt(clientId, { status: "done", lastError: null });
+}
+
+export function markFailed(clientId: string, error: string): Promise<void> {
+  return finishAttempt(clientId, { status: "failed", lastError: error });
+}
+
+export function markRetry(clientId: string, error: string, nextAttemptAt: number): Promise<void> {
+  return finishAttempt(clientId, { status: "pending", lastError: error, nextAttemptAt });
+}
+
+async function finishAttempt(
+  clientId: string,
+  changes: Pick<OutboxRecord, "status" | "lastError"> & { nextAttemptAt?: number },
+): Promise<void> {
+  await db.transaction("rw", db.outbox, async () => {
+    const record = await db.outbox.get(clientId);
+    if (record?.status !== "sending") {
+      throw new Error(`Outbox record ${clientId} is not being sent`);
+    }
+    await db.outbox.put({ ...record, ...changes, attempts: record.attempts + 1 });
+  });
+}
+
 // Call inside a rw transaction on db.outbox.
 async function add(write: PendingWrite | SyncedWrite): Promise<string> {
   const last = await db.outbox.orderBy("createdAt").last();
