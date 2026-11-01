@@ -189,6 +189,7 @@ src/
   domain/
     calc.ts                amount expression parser (no eval)
     money.ts               decimal string helpers
+    currency.ts            fraction digits per currency for entered amounts
     dates.ts               local YYYY-MM-DD dates
   features/
     entry/  recent/  balances/  settings/
