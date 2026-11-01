@@ -117,6 +117,7 @@ After the account sync, Sure's `auto_match_transfers!` pairs them into a transfe
 Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to the version of your instance.
 
 - **Auth:** API key from _Settings → API Key_, scope `read_write`, sent as `X-Api-Key`.
+- **Checking a key:** a read-only key reads like a `read_write` one. Settings sends `DELETE /api/v1/transactions/<random UUID>`: `TransactionsController` runs `ensure_write_scope` before it looks the transaction up, so a read-only key gets `403` and a `read_write` key `404`, and nothing changes. A CORS block and an unreachable host both fail with a bare `TypeError`; a follow-up `no-cors` request (no `X-Api-Key`, so no preflight) resolves only when the host answers.
 - **CORS:** Sure enables `Rack::Cors` with `origins "*"` for `/api/*`, so the app can be hosted on any origin. A reverse proxy or Cloudflare Access in front of Sure must let `OPTIONS` preflight requests through to Rails.
 - **Endpoints used in v1:**
 
