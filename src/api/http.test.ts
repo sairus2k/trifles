@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { postApiV1Transactions } from "./generated/sure";
 import { SureError, configureSure, sureFetch } from "./http";
 
 type Result = { status: number; data: unknown; headers: Headers };
@@ -121,5 +122,34 @@ describe("sureFetch", () => {
 
     expect(error.kind).toBe("not-configured");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("generated client", () => {
+  test("sends a create through sureFetch and narrows the result by status", async () => {
+    fetchMock.mockResolvedValue(json(201, { id: "tx-1", amount_decimal: "12.50" }));
+
+    const result = await postApiV1Transactions({
+      transaction: {
+        account_id: "acc-1",
+        date: "2026-11-01",
+        amount: 12.5,
+        name: "Coffee",
+        nature: "expense",
+        currency: "EUR",
+        external_id: "client-1",
+        source: "sure-quick-entry",
+      },
+    });
+
+    expect(result.status).toBe(201);
+    if (result.status === 201) expect(result.data.id).toBe("tx-1");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://sure.example/api/v1/transactions");
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("X-Api-Key")).toBe("secret-key");
+    expect(JSON.parse(init?.body as string)).toMatchObject({
+      transaction: { external_id: "client-1", nature: "expense" },
+    });
   });
 });

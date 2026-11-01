@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "lint": "oxlint",
     "format": "oxfmt",
-    "format:check": "oxfmt --check"
+    "format:check": "oxfmt --check",
+    "gen:api": "orval"
   },
   "dependencies": {
     "@solidjs/web": "2.0.0-rc.20",

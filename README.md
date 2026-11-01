@@ -154,7 +154,7 @@ Pinned versions as of 2026-10-31. Solid 2 is a release candidate: **install ever
 ### Why these choices
 
 - **Dexie instead of TanStack DB.** Three entities and one write type do not justify a reactive collection engine that is still pre-1.0. Dexie gives storage and live queries; the outbox is ~200 lines we fully control.
-- **orval.** Works with TypeScript 7 out of the box (its core does not use the compiler API), produces a single file, and types responses as a union discriminated by status, which maps directly onto outbox handling. `openapi-typescript` and the current stable `@hey-api/openapi-ts` require the TypeScript 5/6 compiler API and break on TypeScript 7.
+- **orval.** Works with TypeScript 7 out of the box (its core does not use the compiler API), produces a single file, and types responses as a union discriminated by status, which maps directly onto outbox handling. `openapi-typescript` and the current stable `@hey-api/openapi-ts` require the TypeScript 5/6 compiler API and break on TypeScript 7. kubb 5 was run on the same spec and tags (2026-11-01) and also passed `tsc` 7, with a smaller install (~26 MB and 59 packages, against ~95 MB and 82 packages for orval, which installs every generator plugin and two nested copies of `typescript@6.0.3`). It lost on the output: it copies its own runtime client into three extra files (99 KB in total, against 35 KB for orval's single file), it has no mutator, so the content-type check would live in a custom `transport`, and its "optional" `@kubb/parser-ts` peer is required: without it kubb reports success and writes functions with no declarations. It also sends telemetry unless `KUBB_DISABLE_TELEMETRY=1` is set. The extra install size is dev-only and never reaches the bundle.
 - **Solid 2.** A small project with almost no ecosystem dependencies is a good place to adopt it early.
 - **A hand-written service worker instead of `vite-plugin-pwa` or Serwist.** The worker only precaches the app shell and serves `index.html` for navigations; data lives in Dexie, so no runtime caching is needed. Prototypes of both options (2026-11-01) passed the same offline E2E suite: Serwist added 19 packages and a 10 kB (gzip) `sw.js`, the hand-written worker is ~75 lines (worker plus a small Vite plugin that injects the precache list and a content hash) and a 0.8 kB `sw.js`. `vite-plugin-pwa` pulls in ~266 packages through `workbox-build` and pins Vite to 8.
 
@@ -205,21 +205,31 @@ export default defineConfig({
     input: {
       target: "./spec/sure-openapi.yaml",
       unsafeDisableValidation: true,
+      filters: { tags: ["Accounts", "Transactions", "Categories", "Merchants"] },
     },
     output: {
       target: "./src/api/generated/sure.ts",
       client: "fetch",
-      mode: "split",
-      mock: true,
+      mode: "single",
       override: {
         mutator: { path: "./src/api/http.ts", name: "sureFetch" },
       },
     },
+    hooks: { afterAllFilesWrite: "oxfmt" },
   },
 });
 ```
 
-The mutator adds the instance URL and `X-Api-Key`, and checks `res.ok` and `content-type` **before** parsing JSON. Generated types only cover status codes declared in the spec, and a proxy can return HTML for 401 or 5xx.
+- Only the tags v1 uses are generated (~1,300 lines instead of ~10,600 for the whole spec). Add a tag to `filters` when a feature needs it.
+- No MSW mocks are generated: the sync tests use the hand-written fake in `test/fake-sure/`. Add them in a separate file if a consumer appears, so the client never imports `msw` or faker.
+- The output is formatted by oxfmt, so a spec update produces a readable diff.
+
+Each generated function resolves to `{ status, data, headers }`, typed as a union of the statuses **the spec declares** for that operation (for `POST /transactions`: `200 | 201 | 422`). The mutator (`src/api/http.ts`) makes that type honest:
+
+- It adds the instance URL (set with `configureSure({ baseUrl, apiKey })`) and `X-Api-Key`.
+- It reads the body as text and checks the status and `content-type` **before** parsing JSON.
+- It returns JSON responses with a 2xx or 4xx status, except 401 and 429, as `{ status, data, headers }`. This includes `422` with the server message.
+- It throws `SureError` with `kind` and `status` for everything else: `http` for 401, 429 and 5xx (whatever the body, since a proxy may answer with HTML and the spec rarely declares them), `not-json` for a non-JSON or malformed body (for example a proxy login page with `200`), `network` when the request or body read fails, and `not-configured` without settings.
 
 ### Solid ↔ Dexie bridge
 
@@ -279,7 +289,7 @@ Effort follows risk: most of the complexity is in the sync engine, so most of th
 4. **E2E** with Playwright: install the service worker → `context.setOffline(true)` → reload → app loads; enter offline → pending row → back online → synced.
 5. **Manual checklist on a real iPhone:** install to home screen, storage persistence after several days, decimal keyboard and operator row.
 
-orval's generated MSW handlers (`mock: true`) are useful for dev mode and component tests. They always answer `200` and fill fields with random strings, so the sync engine tests use the hand-written fake instead. Seed faker in test setup.
+orval's generated MSW handlers (`mock: true`) always answer `200` and fill fields with random strings, so the sync engine tests use the hand-written fake instead, and the client is generated without them. Seed faker in test setup.
 
 ## Getting started
 
@@ -288,7 +298,7 @@ Requires Node.js 22.18 or newer.
 ```sh
 npm install                       # also installs the lefthook pre-commit hook
 npx playwright install chromium   # browser for component and E2E tests
-npm run gen:api      # orval: spec/sure-openapi.yaml → src/api/generated (not added yet)
+npm run gen:api      # orval: spec/sure-openapi.yaml → src/api/generated
 npm run dev          # Vite dev server
 npm run typecheck    # tsc (TypeScript 7)
 npm run lint         # oxlint
@@ -314,12 +324,12 @@ The browser tests need Chromium (`npx playwright install chromium`). Typecheck a
 ### Updating the Sure spec
 
 ```sh
-# copy docs/api/openapi.yaml from the Sure commit your instance runs
-cp ../sure/docs/api/openapi.yaml spec/sure-openapi.yaml
+# take docs/api/openapi.yaml from the Sure commit your instance runs
+git -C ../sure show <commit>:docs/api/openapi.yaml > spec/sure-openapi.yaml
 npm run gen:api
 ```
 
-Record the Sure commit in `spec/README.md`.
+Record the Sure commit in `spec/README.md`. Keep the spec byte for byte as upstream (it is excluded from oxfmt).
 
 ## Deployment
 
