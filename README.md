@@ -277,6 +277,15 @@ const recent = createLiveQuery(accountId, (id) =>
 - Dates are stored as local `YYYY-MM-DD`, never as ISO timestamps; otherwise an entry made at 00:30 lands on the previous day.
 - The calculator is a small expression parser. Never use `eval` or `new Function`.
 
+### Recent list
+
+`src/features/recent/rows.ts` turns the cached transactions and the outbox into day groups; it is pure, so every rule has a unit test.
+
+- **One row per entry.** A create or transfer this app sent is matched to its pulled transaction by `external_id`; once it is `done` and pulled, the server row stands for it. The legs of a transfer show as one row, grouped by Sure's transfer id, or by our client id before Sure pairs them.
+- **Changes on top.** The newest `update` of a transaction shows its values and a `delete` hides it, while queued, sending or `done`; a failed one shows the transaction with Sure's message and can be discarded. A `done` change keeps its overlay until the outbox drops it (TASK-20), so an edit never flips back to the old values between push and pull.
+- **What a row allows.** An entry that is certainly not on the server (`isEditable()`) is rewritten or removed in the outbox. A synced transaction is edited as a full-value `update` (its account is fixed, and a category or merchant cannot be cleared) and deleted as a `delete`. A synced transfer can only be deleted, leg by leg: a changed leg would no longer match its pair. A failed transfer can only be dismissed, since one leg may be in Sure. Anything retrying, sending, or sent but not pulled yet is locked and says why.
+- **Editor and swipe.** Tapping a row opens the entry form in a `<dialog>` with a date field; an untouched amount is sent as stored, so an edit does not round extra digits. Swiping left uncovers a Delete button; the editor has one too, for keyboards.
+
 ## Testing
 
 Effort follows risk: most of the complexity is in the sync engine, so most of the tests are there.
