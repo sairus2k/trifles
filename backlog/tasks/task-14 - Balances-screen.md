@@ -4,7 +4,7 @@ title: Balances screen
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T17:54:00Z'
+updated_date: '2026-11-01T18:30:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -56,6 +56,15 @@ created: 2026-11-01T17:54:00Z
 ---
 
 From TASK-12: `amountScale(currency)` in src/domain/currency.ts is the precision of an entered amount (Sure `default_precision`, capped at 4), not the `minor_unit_conversion` that `balance_cents` and `toCents(delta, scale)` need: they differ for MGA/MRU (5, not a power of 10) and crypto (BTC 10^8, ETH 10^18). Add a separate mapping for balances from the same config/currencies.yml.
+
+---
+
+author: @claude
+created: 2026-11-01T18:30:00Z
+
+---
+
+From TASK-13: formatAmount(decimal, currency, locale?) in src/domain/money.ts formats a display amount with amountScale digits and signs only negatives. It suits entered amounts; balance_cents still needs the minor_unit_conversion mapping noted above before it can be passed in.
 
 ---
 <!-- COMMENTS:END -->

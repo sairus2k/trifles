@@ -4,7 +4,7 @@ title: 'PWA: installable app that works offline'
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T17:54:00Z'
+updated_date: '2026-11-01T18:30:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -77,6 +77,15 @@ created: 2026-11-01T17:54:00Z
 ---
 
 From TASK-12: the offline E2E can enter through the form (labels "Amount", "Merchant", "Note"; buttons "Add expense" / "Add income" / "Add transfer"); it needs a cached account, so seed IndexedDB or let a first online pull run. Add to the iPhone checklist: after "Add expense" and after an operator button, the decimal keyboard stays open (focus returns to the amount after an await, outside the tap, and iOS may refuse to reopen the keyboard there).
+
+---
+
+author: @claude
+created: 2026-11-01T18:30:00Z
+
+---
+
+From TASK-13: the offline E2E can check the pending row: the recent list (region "Recent transactions") marks an unsent entry "Pending" and drops the mark once it is synced and pulled. Add to the iPhone checklist: swipe left on a row uncovers Delete without scrolling the page (touch-action: pan-y), and the edit <dialog> opens over the form with the decimal keyboard working.
 
 ---
 <!-- COMMENTS:END -->

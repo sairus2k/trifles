@@ -1,11 +1,11 @@
 ---
 id: TASK-13
 title: Recent transactions list
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T18:12:00Z'
+updated_date: '2026-11-01T18:31:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -25,10 +25,10 @@ Right below the form the user sees what they just entered and whether it reached
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Server and pending transactions are shown together, grouped by local day, newest first
-- [ ] #2 Pending entries are marked; failed entries show the server error
-- [ ] #3 Tap opens the entry for editing; swipe deletes it, both going through the outbox
-- [ ] #4 Component tests cover grouping, pending and failed rows, edit and delete
+- [x] #1 Server and pending transactions are shown together, grouped by local day, newest first
+- [x] #2 Pending entries are marked; failed entries show the server error
+- [x] #3 Tap opens the entry for editing; swipe deletes it, both going through the outbox
+- [x] #4 Component tests cover grouping, pending and failed rows, edit and delete
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -82,6 +82,17 @@ Decisions (mine, routine):
 11. Before done: full suite green in the hook, a mutation check of the dedupe and of the delete routing, then the finalization guide.
 <!-- SECTION:PLAN:END -->
 
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented as planned in 9 commits (8fcd0b6..1288317). Deviations from the plan:
+- An outbox create/transfer that matches a pulled transaction but is not done shows the outbox payload, not the server values: they are the same write, and the outbox status decides what the row allows.
+- formatAmount signs only negatives (d1d412f): a transfer has no direction, so the list adds the plus of an income itself.
+- EntryForm stays in src/features/entry/entry.tsx, exported, rather than moving to its own file.
+- recent.browser.test.tsx imports src/index.css: the swipe uncovers the Delete button by layout, and without styles the moved row still covers it.
+Verification: npm test 350/350 (21 files) in Chromium and Node, typecheck and lint clean, lefthook green on every commit. Mutation checks: removing the done-and-pulled skip, the pulled-leg dedupe, failed-delete visibility, leg-delete hiding, isEditable, the unpulled reason, the externalId leg grouping, each delete route, the locked-error report, the untouched-amount rule and the disabled "No category" each fail at least one test.
+<!-- SECTION:NOTES:END -->
+
 ## Comments
 
 <!-- COMMENTS:BEGIN -->
@@ -116,3 +127,13 @@ From TASK-12: the editor should follow the entry form rules in src/features/entr
 
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The main screen lists recent transactions under the entry form: cached server transactions and the outbox merged into one row per entry (matched by external_id, transfer legs grouped), grouped by local day, newest first. Pending, sending and retrying rows are marked; failed ones show Sure's message. Tapping opens the entry form in a dialog with a date field (pending entries are rewritten in the outbox, synced ones queue a full-value update with the account fixed and category kept); swiping left uncovers Delete (removePending, enqueueDelete, one per transfer leg, or discardFailed for a failed transfer). Rows that may be on their way to Sure are locked and say why.
+
+Supporting changes: a paused push no longer counts an attempt for a create, so entries made while the key is rejected stay editable; discardFailed drops a failed record of any kind; the cache keeps created_at and the transfer id; formatAmount and dayLabel for display.
+
+Verified by 350 passing tests (rows rules in Node, list, editor and swipe in Chromium) and mutation checks. Risks/follow-ups: done updates and deletes keep their overlay until TASK-20 cleans them up; a change to a transaction outside the latest 100 is not shown; synced transfers are edited in Sure; swipe and dialog still need the iPhone check (TASK-15).
+<!-- SECTION:FINAL_SUMMARY:END -->

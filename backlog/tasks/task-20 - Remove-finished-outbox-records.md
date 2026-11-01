@@ -4,6 +4,7 @@ title: Remove finished outbox records
 status: To Do
 assignee: []
 created_date: '2026-11-01T15:54:00Z'
+updated_date: '2026-11-01T18:30:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -30,3 +31,16 @@ Push marks sent records `done` and nothing deletes them, so the outbox grows for
 - [ ] #4 Pending, sending and failed records are never removed by the cleanup
 - [ ] #5 Tested against the fake
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: @claude
+created: 2026-11-01T18:30:00Z
+
+---
+
+From TASK-13: the recent list (src/features/recent/rows.ts) keeps a done record on screen in three ways, so cleanup must not drop it early. A done create/transfer shows as its own row until a pulled transaction matches its external_id (then it is already hidden, so removing it changes nothing on screen). A done update keeps its values overlaid on the transaction and a done delete keeps the row hidden: drop them only after a transactions pull that started after the send, or the old values flash back until the next pull. Failed records now leave through discardFailed (src/sync/outbox.ts).
+
+---
+<!-- COMMENTS:END -->
