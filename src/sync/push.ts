@@ -1,5 +1,6 @@
 import {
   deleteApiV1TransactionsId,
+  getApiV1AccountsId,
   patchApiV1TransactionsId,
   postApiV1Transactions,
   type ErrorResponse,
@@ -15,6 +16,8 @@ const SOURCE = "sure-quick-entry";
 const REQUEST_TIMEOUT_MS = 30_000;
 const BACKOFF_BASE_MS = 2_000;
 const BACKOFF_MAX_MS = 5 * 60_000;
+
+const ACCOUNT_GONE = "The account is no longer in Sure or no longer shared with you.";
 
 export interface PushResult {
   /** Records that reached `done` in this run. */
@@ -113,9 +116,31 @@ async function send(record: OutboxRecord): Promise<Reply> {
 // A repeated external_id answers 200 with the original transaction, so `created_at` is when Sure
 // first applied the write.
 async function create(externalId: string, entry: EntryPayload): Promise<Reply> {
-  const reply = await postApiV1Transactions(createBody(externalId, entry), timeout());
+  let reply;
+  try {
+    reply = await postApiV1Transactions(createBody(externalId, entry), timeout());
+  } catch (error) {
+    if (error instanceof SureError && error.status === 500 && (await isGone(entry.accountId))) {
+      return { status: 404, data: { error: "not_found", message: ACCOUNT_GONE } };
+    }
+    throw error;
+  }
   if (reply.status === 422) return reply;
   return { ...reply, appliedAt: Date.parse(reply.data.created_at) };
+}
+
+// Sure answers a create for an account the key cannot write with the same 500 as any other failure:
+// `create` rescues the RecordNotFound itself. Retrying would hold the queue for good, so a 500 asks
+// whether the account is still there. A failed lookup leaves the 500 to be retried: even a 401 must
+// not pause the record, since a pause keeps a create editable and the 500 may follow a saved entry.
+async function isGone(accountId: string): Promise<boolean> {
+  try {
+    const reply = await getApiV1AccountsId(accountId, { include_disabled: true }, timeout());
+    return reply.status === 404;
+  } catch (error) {
+    if (error instanceof SureError) return false;
+    throw error;
+  }
 }
 
 function createBody(externalId: string, entry: EntryPayload): PostApiV1TransactionsBody {

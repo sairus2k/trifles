@@ -4,11 +4,13 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import { FAKE_SURE_URL, createFakeSure, type FakeSure } from "../../test/fake-sure";
 import { configureSure } from "../api/http";
 import { db, type EntryPayload, type TransferPayload } from "../db/schema";
-import { editPending, enqueue, enqueueDelete, enqueueUpdate } from "./outbox";
+import { editPending, enqueue, enqueueDelete, enqueueUpdate, isEditable } from "./outbox";
 import { push } from "./push";
 
 const NOW = new Date("2026-11-01T10:00:00Z").getTime();
 const POST = "POST /api/v1/transactions";
+const ACCOUNT = "GET /api/v1/accounts/:id";
+const ACCOUNT_GONE = "The account is no longer in Sure or no longer shared with you.";
 const TRANSACTIONS = `${FAKE_SURE_URL}/api/v1/transactions`;
 
 const server = setupServer();
@@ -48,6 +50,18 @@ function postedExternalIds() {
   return sure.requests
     .filter((r) => r.method === "POST")
     .map((r) => (r.body as { transaction: { external_id: string } }).transaction.external_id);
+}
+
+function lookedUp() {
+  return sure.requests.filter((r) => r.method === "GET").map((r) => r.path);
+}
+
+// Deleted in Sure, or no longer shared with the key's user: either way the fake no longer has it.
+function removeAccount(id: string) {
+  sure.accounts.splice(
+    sure.accounts.findIndex((a) => a.id === id),
+    1,
+  );
 }
 
 function later(ms: number) {
@@ -298,9 +312,10 @@ describe("retry", () => {
       lastError: "POST /api/v1/transactions failed with status 500",
     });
 
+    const requests = sure.requests.length;
     later(1499);
     expect(await push()).toEqual({ sent: 0, paused: false });
-    expect(sure.requests).toHaveLength(1);
+    expect(sure.requests).toHaveLength(requests);
 
     later(1);
     expect(await push()).toEqual({ sent: 1, paused: false });
@@ -370,6 +385,103 @@ describe("retry", () => {
     const failed = (await record(clientId))!;
     expect(failed).toMatchObject({ status: "pending", lastError: "TypeError: boom" });
     expect(failed.nextAttemptAt).toBeGreaterThan(NOW);
+  });
+});
+
+describe("account Sure no longer has", () => {
+  test("a create for it fails with a message the UI can show, and the queue continues", async () => {
+    removeAccount("acc-cash");
+    const orphan = await enqueue({ op: "create", payload: coffee });
+    const next = await enqueue({ op: "create", payload: entry({ accountId: "acc-checking" }) });
+
+    expect(await push()).toEqual({ sent: 1, paused: false });
+
+    expect(await record(orphan)).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      lastError: ACCOUNT_GONE,
+    });
+    expect(await record(next)).toMatchObject({ status: "done" });
+    expect(lookedUp()).toEqual(["/api/v1/accounts/acc-cash?include_disabled=true"]);
+  });
+
+  test("the failed create was not applied, so it can be moved to another account", async () => {
+    removeAccount("acc-cash");
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    await push();
+
+    expect(isEditable((await record(clientId))!)).toBe(true);
+    await editPending(clientId, { op: "create", payload: entry({ accountId: "acc-checking" }) });
+    expect(await push()).toEqual({ sent: 1, paused: false });
+    expect(sure.transactions.map((t) => t.account.id)).toEqual(["acc-checking"]);
+  });
+
+  test("a transfer to it fails after the :out leg, which stays sent once", async () => {
+    removeAccount("acc-cash");
+    const clientId = await enqueue({ op: "transfer", payload: withdrawal });
+    const next = await enqueue({ op: "create", payload: entry({ accountId: "acc-checking" }) });
+
+    expect(await push()).toEqual({ sent: 1, paused: false });
+
+    expect(await record(clientId)).toMatchObject({ status: "failed", lastError: ACCOUNT_GONE });
+    expect(sure.transactions.map((t) => t.external_id)).toEqual([`${clientId}:out`, next]);
+  });
+
+  test("a transfer from it fails without sending the :in leg", async () => {
+    removeAccount("acc-checking");
+    const clientId = await enqueue({ op: "transfer", payload: withdrawal });
+
+    await push();
+
+    expect(await record(clientId)).toMatchObject({ status: "failed", lastError: ACCOUNT_GONE });
+    expect(postedExternalIds()).toEqual([`${clientId}:out`]);
+    expect(sure.transactions).toHaveLength(0);
+  });
+
+  test("a 500 for an account that exists is retried", async () => {
+    sure.failNext(POST, { status: 500 });
+    const clientId = await enqueue({ op: "create", payload: coffee });
+
+    await push();
+
+    expect(lookedUp()).toEqual(["/api/v1/accounts/acc-cash?include_disabled=true"]);
+    expect(await record(clientId)).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      lastError: "POST /api/v1/transactions failed with status 500",
+    });
+  });
+
+  test("another 5xx is retried without a lookup", async () => {
+    removeAccount("acc-cash");
+    sure.failNext(POST, { status: 503 });
+    const clientId = await enqueue({ op: "create", payload: coffee });
+
+    await push();
+
+    expect(lookedUp()).toEqual([]);
+    expect(await record(clientId)).toMatchObject({ status: "pending", attempts: 1 });
+  });
+
+  // Even a 401: a pause would keep the create editable, and the 500 may follow a saved entry.
+  test.each([
+    ["500", { status: 500 }],
+    ["401", { status: 401 }],
+    ["a network error", "drop"],
+  ] as const)("a lookup that fails with %s retries the record for the 500", async (_, fault) => {
+    removeAccount("acc-cash");
+    sure.failNext(ACCOUNT, fault);
+    const clientId = await enqueue({ op: "create", payload: coffee });
+
+    expect(await push()).toEqual({ sent: 0, paused: false });
+
+    const retried = (await record(clientId))!;
+    expect(retried).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      lastError: "POST /api/v1/transactions failed with status 500",
+    });
+    expect(isEditable(retried)).toBe(false);
   });
 });
 
