@@ -12,5 +12,8 @@ export default defineConfig({
     fileParallelism: false,
     // Balance recalculation and transfer matching run in Sure's background jobs.
     testTimeout: 90_000,
+    // The latency report is console output of a passing test, which the reporter Vitest picks
+    // for AI agents hides.
+    reporters: ["default"],
   },
 });

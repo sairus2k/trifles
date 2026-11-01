@@ -9,6 +9,7 @@ test("the pinned Sure answers with the seeded accounts", async () => {
   if (reply.status !== 200) return;
   expect(reply.data.accounts.map((account) => account.name).toSorted()).toEqual([
     "Checking",
+    "Latency",
     "Savings",
   ]);
 });

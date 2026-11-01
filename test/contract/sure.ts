@@ -35,6 +35,7 @@ export async function seeded() {
   return {
     checking: id(accounts.data.accounts, "Checking"),
     savings: id(accounts.data.accounts, "Savings"),
+    latency: id(accounts.data.accounts, "Latency"),
     groceries: id(categories.data.categories, "Groceries"),
     cornerShop: id(merchants.data, "Corner Shop"),
   };
@@ -83,6 +84,6 @@ export async function eventually<T>(
     const value = await read();
     if (value !== undefined) return value;
     if (Date.now() > deadline) throw new Error(`Gave up after ${timeoutMs} ms`);
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }

@@ -25,7 +25,8 @@ user.api_keys.create!(name: "read_write", key: ENV.fetch("SURE_READ_WRITE_KEY"),
 user.api_keys.create!(name: "read", key: ENV.fetch("SURE_READ_KEY"), scopes: [ "read" ], source: "web")
 
 # An explicit owner: create looks the account up with writable_by(user) and answers 500 otherwise.
-[ "Checking", "Savings" ].each do |name|
+# Latency is written by the latency test only, so no other test's sync moves its balance.
+[ "Checking", "Savings", "Latency" ].each do |name|
   Account.create_and_sync({
     family: family,
     owner: user,
