@@ -12,7 +12,7 @@ import { amountScale } from "../../domain/currency";
 import { todayLocal } from "../../domain/dates";
 import { enqueue, type PendingWrite } from "../../sync/outbox";
 
-type Tab = "expense" | "income" | "transfer";
+export type Tab = "expense" | "income" | "transfer";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "expense", label: "Expense" },
@@ -35,7 +35,7 @@ const ACCOUNT_KEY = "entryAccountId";
 
 const FIELD = "min-h-11 rounded-lg border border-line bg-surface-raised px-3 text-base font-normal";
 
-interface EntryData {
+export interface EntryData {
   accounts: AccountRecord[];
   categories: CategoryRecord[];
   merchants: MerchantRecord[];
@@ -48,7 +48,7 @@ interface Suggestion {
   categoryId: string | undefined;
 }
 
-async function readEntryData(): Promise<EntryData> {
+export async function readEntryData(): Promise<EntryData> {
   const [accounts, categories, merchants, suggestions, remembered] = await Promise.all([
     db.accounts.toArray(),
     db.categories.toArray(),
@@ -77,25 +77,70 @@ export function Entry() {
           </p>
         }
       >
-        <EntryForm data={data()} />
+        <EntryForm
+          data={data()}
+          initial={{ accountId: data().rememberedAccountId }}
+          onAccountChange={(id) => void db.meta.put({ key: ACCOUNT_KEY, value: id })}
+          onSubmit={enqueue}
+          clearAfterSubmit
+        />
       </Show>
     </Loading>
   );
 }
 
-function EntryForm(props: { data: EntryData }) {
-  const [tab, setTab] = createSignal<Tab>("expense");
-  const [amount, setAmount] = createSignal("");
-  const [name, setName] = createSignal("");
-  const [note, setNote] = createSignal("");
+/** Where the form starts; the editor (TASK-13) fills it from an existing entry. */
+export interface FormInitial {
+  tab?: Tab;
+  /** Sent as is when left untouched, so an edit does not round digits Sure already stores. */
+  amount?: string;
+  accountId?: string;
+  fromId?: string;
+  toId?: string;
+  categoryId?: string | null;
+  name?: string;
+  note?: string;
+  /** Only with `withDate`; otherwise the entry is dated today at submit. */
+  date?: string;
+}
+
+export interface EntryFormProps {
+  data: EntryData;
+  tabs?: Tab[];
+  initial?: FormInitial;
+  /** Shown instead of the account select: PATCH cannot move a synced transaction. */
+  fixedAccount?: { id: string; name: string; currency: string };
+  /** Sure cannot clear a synced transaction's category or merchant. */
+  keepsCategory?: boolean;
+  keptMerchantName?: string;
+  withDate?: boolean;
+  submitLabel?: string;
+  onAccountChange?: (id: string) => void;
+  onSubmit: (write: PendingWrite) => Promise<unknown>;
+  clearAfterSubmit?: boolean;
+}
+
+export function EntryForm(props: EntryFormProps) {
+  const initial = props.initial ?? {};
+  const tabs = TABS.filter((item) => (props.tabs ?? TABS.map((t) => t.id)).includes(item.id));
+  const [tab, setTab] = createSignal<Tab>(initial.tab ?? tabs[0]!.id);
+  const [amount, setAmount] = createSignal(initial.amount ?? "");
+  const [name, setName] = createSignal(initial.name ?? "");
+  const [note, setNote] = createSignal(initial.note ?? "");
+  const [date, setDate] = createSignal(initial.date ?? todayLocal());
   const [error, setError] = createSignal<string>();
   const [suggesting, setSuggesting] = createSignal(false);
   // Expense and income use different categories, so each tab keeps its own.
-  const [expenseCategoryId, setExpenseCategoryId] = createSignal("");
-  const [incomeCategoryId, setIncomeCategoryId] = createSignal("");
+  const startCategory = (forTab: Tab) =>
+    initial.tab === forTab || (!initial.tab && forTab === "expense")
+      ? (initial.categoryId ?? "")
+      : "";
+  const [expenseCategoryId, setExpenseCategoryId] = createSignal(startCategory("expense"));
+  const [incomeCategoryId, setIncomeCategoryId] = createSignal(startCategory("income"));
+  const [accountId, setAccountId] = createSignal(initial.accountId);
   // Session-only, so a transfer does not change the account the next expense defaults to.
-  const [fromId, setFromId] = createSignal<string>();
-  const [toId, setToId] = createSignal<string>();
+  const [fromId, setFromId] = createSignal(initial.fromId);
+  const [toId, setToId] = createSignal(initial.toId);
   let amountInput: HTMLInputElement;
   // A plain flag, not a signal: signal reads lag behind writes until the next flush, so a second
   // Enter during the write would pass a signal check.
@@ -103,8 +148,9 @@ function EntryForm(props: { data: EntryData }) {
 
   const account = createMemo(
     () =>
-      props.data.accounts.find((a) => a.id === props.data.rememberedAccountId) ??
-      props.data.accounts[0],
+      props.fixedAccount ??
+      props.data.accounts.find((a) => a.id === accountId()) ??
+      props.data.accounts[0]!,
   );
   const from = createMemo(() => props.data.accounts.find((a) => a.id === fromId()) ?? account());
   // Cross-currency transfers are out of v1: Sure does not match them between manual accounts.
@@ -116,6 +162,12 @@ function EntryForm(props: { data: EntryData }) {
   const category = createMemo(() => props.data.categories.find((c) => c.id === categoryId()));
   const candidates = createMemo(() => rank(props.data.suggestions, props.data.merchants));
   const suggestions = createMemo(() => matching(name(), candidates()));
+  // PATCH drops a blank merchant_id, so a name that is not a merchant only renames the transaction.
+  const keptMerchant = () =>
+    props.keptMerchantName &&
+    !findMerchant(name().trim(), props.data.merchants, props.data.suggestions)
+      ? props.keptMerchantName
+      : undefined;
 
   function selectCategory(id: string) {
     if (tab() === "income") setIncomeCategoryId(id);
@@ -146,7 +198,11 @@ function EntryForm(props: { data: EntryData }) {
     const source = transfer ? from() : account();
     const target = to();
     if (transfer && !target) return;
-    const result = evaluateAmount(amount(), amountScale(source.currency));
+    // An untouched amount is sent as is, so an edit does not round digits Sure already stores.
+    const kept = initial.amount && amount() === initial.amount ? initial.amount : undefined;
+    const result = kept
+      ? ({ ok: true, value: kept } as const)
+      : evaluateAmount(amount(), amountScale(source.currency));
     if (!result.ok) {
       setError(result.message);
       amountInput.focus();
@@ -159,7 +215,7 @@ function EntryForm(props: { data: EntryData }) {
           payload: {
             fromAccountId: source.id,
             toAccountId: target!.id,
-            date: todayLocal(),
+            date: props.withDate ? date() : todayLocal(),
             amount: result.value,
             currency: source.currency,
             name: `${source.name} → ${target!.name}`,
@@ -170,7 +226,7 @@ function EntryForm(props: { data: EntryData }) {
           op: "create",
           payload: {
             accountId: source.id,
-            date: todayLocal(),
+            date: props.withDate ? date() : todayLocal(),
             amount: result.value,
             nature: tab() === "income" ? "income" : "expense",
             currency: source.currency,
@@ -182,10 +238,11 @@ function EntryForm(props: { data: EntryData }) {
 
     saving = true;
     try {
-      await enqueue(write);
+      await props.onSubmit(write);
     } finally {
       saving = false;
     }
+    if (!props.clearAfterSubmit) return;
     setAmount("");
     setNote("");
     setName("");
@@ -210,8 +267,15 @@ function EntryForm(props: { data: EntryData }) {
 
   return (
     <form class="flex flex-col gap-4 py-4 px-safe" onSubmit={submit}>
-      <div role="tablist" class="grid grid-cols-3 gap-1 rounded-lg bg-surface-raised p-1">
-        <For each={TABS}>
+      <div
+        role="tablist"
+        hidden={tabs.length < 2}
+        class={[
+          "grid gap-1 rounded-lg bg-surface-raised p-1",
+          tabs.length === 3 ? "grid-cols-3" : "grid-cols-2",
+        ]}
+      >
+        <For each={tabs}>
           {(item) => (
             <button
               type="button"
@@ -280,16 +344,37 @@ function EntryForm(props: { data: EntryData }) {
         when={tab() === "transfer"}
         fallback={
           <>
-            <AccountSelect
-              label="Account"
-              accounts={props.data.accounts}
-              selected={account()}
-              onSelect={(id) => void db.meta.put({ key: ACCOUNT_KEY, value: id })}
-            />
+            <Show
+              when={props.fixedAccount}
+              fallback={
+                <AccountSelect
+                  label="Account"
+                  accounts={props.data.accounts}
+                  selected={account()}
+                  onSelect={(id) => {
+                    setAccountId(id);
+                    props.onAccountChange?.(id);
+                  }}
+                />
+              }
+            >
+              {(fixed) => (
+                <p class="flex flex-col gap-1 font-medium">
+                  Account
+                  <span class="font-normal text-ink-muted">
+                    {fixed().name} · {fixed().currency}
+                  </span>
+                </p>
+              )}
+            </Show>
             <label class="flex flex-col gap-1 font-medium">
               Category
               <select class={FIELD} onChange={(e) => selectCategory(e.currentTarget.value)}>
-                <option value="" selected={!category()}>
+                <option
+                  value=""
+                  selected={!category()}
+                  disabled={props.keepsCategory && Boolean(initial.categoryId)}
+                >
                   No category
                 </option>
                 <For each={props.data.categories}>
@@ -344,6 +429,11 @@ function EntryForm(props: { data: EntryData }) {
                   </For>
                 </ul>
               </Show>
+              <Show when={keptMerchant()}>
+                {(merchant) => (
+                  <p class="text-sm text-ink-muted">Sure keeps the merchant {merchant()}.</p>
+                )}
+              </Show>
             </div>
           </>
         }
@@ -368,6 +458,19 @@ function EntryForm(props: { data: EntryData }) {
         </Show>
       </Show>
 
+      <Show when={props.withDate}>
+        <label class="flex flex-col gap-1 font-medium">
+          Date
+          <input
+            class={FIELD}
+            type="date"
+            required
+            value={date()}
+            onInput={(e) => setDate(e.currentTarget.value)}
+          />
+        </label>
+      </Show>
+
       <label class="flex flex-col gap-1 font-medium">
         Note
         <input
@@ -384,7 +487,12 @@ function EntryForm(props: { data: EntryData }) {
         class="min-h-11 rounded-lg bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
         disabled={tab() === "transfer" && !to()}
       >
-        {tab() === "income" ? "Add income" : tab() === "transfer" ? "Add transfer" : "Add expense"}
+        {props.submitLabel ??
+          (tab() === "income"
+            ? "Add income"
+            : tab() === "transfer"
+              ? "Add transfer"
+              : "Add expense")}
       </button>
     </form>
   );
@@ -393,7 +501,7 @@ function EntryForm(props: { data: EntryData }) {
 function AccountSelect(props: {
   label: string;
   accounts: AccountRecord[];
-  selected: AccountRecord;
+  selected: { id: string };
   onSelect: (id: string) => void;
 }) {
   return (
