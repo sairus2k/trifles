@@ -47,19 +47,55 @@ export interface SuggestionRecord {
   lastUsedAt: number;
 }
 
-export type OutboxOp = "create" | "transfer" | "update" | "delete";
+// `amount` is the calculator's positive decimal string; `nature` carries the sign.
+export interface EntryPayload {
+  accountId: string;
+  date: string;
+  amount: string;
+  nature: "expense" | "income";
+  currency: string;
+  name: string;
+  notes: string | null;
+  categoryId: string | null;
+  merchantId: string | null;
+}
+
+// One currency for both accounts: cross-currency transfers are out of v1.
+export interface TransferPayload {
+  fromAccountId: string;
+  toAccountId: string;
+  date: string;
+  amount: string;
+  currency: string;
+  name: string;
+  notes: string | null;
+}
+
+// PATCH /transactions/{id} takes no account_id, so an update cannot move a transaction to another account.
+export interface UpdatePayload {
+  transactionId: string;
+  changes: Omit<EntryPayload, "accountId">;
+}
+
+export interface DeletePayload {
+  transactionId: string;
+}
+
 export type OutboxStatus = "pending" | "sending" | "failed" | "done";
 
-export interface OutboxRecord {
+export type OutboxRecord = {
   clientId: string;
-  op: OutboxOp;
-  payload: unknown;
   status: OutboxStatus;
   attempts: number;
   nextAttemptAt: number;
   lastError: string | null;
   createdAt: number;
-}
+} & (
+  | { op: "create"; payload: EntryPayload }
+  | { op: "transfer"; payload: TransferPayload }
+  | { op: "update"; payload: UpdatePayload }
+  | { op: "delete"; payload: DeletePayload }
+);
 
 export interface MetaRecord {
   key: string;

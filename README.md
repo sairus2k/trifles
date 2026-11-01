@@ -91,7 +91,8 @@ Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pendi
   - `422` → `failed`, shown in the UI with the server message; the queue continues.
   - `401` → pause the queue and send the user to Settings.
   - `5xx`, network error, timeout → retry with exponential backoff and jitter.
-- **Editing pending records:** editing or deleting a record that has not been sent yet rewrites or removes the outbox entry instead of queuing a second operation.
+- **Editing pending records:** editing or deleting a record that has not been sent yet rewrites or removes the outbox entry instead of queuing a second operation. This is allowed only while the write certainly is not on the server: a `create` or `transfer` never attempted, or a `create` that failed with a definitive answer (`422`, `404`). Anything that may have reached Sure (`sending`, retrying after an attempt, a failed transfer with one leg possibly sent, `done`) is locked: a retry with the same `external_id` would answer `200` with the old values, and a changed account would create a second transaction. Once `done`, an edit goes out as an `update`.
+- **Editing synced transactions** enqueues `update` (full values; `PATCH` cannot change the account) or `delete`. A queued `update` or `delete` for the same transaction is overwritten instead of queuing another one, unless it is already `sending`.
 - **Pull:** accounts, categories and merchants on every online start; the latest 100 transactions after every successful push and on demand.
 
 ### Transfers
@@ -171,7 +172,7 @@ src/
     schema.ts              Dexie schema and migrations
     live.ts                createLiveQuery() bridge to Solid
   sync/
-    outbox.ts              enqueue, next, mark done/failed
+    outbox.ts              enqueue, edit and remove pending writes; next, mark done/failed
     push.ts                send loop, backoff, idempotency
     pull.ts                reference data and recent transactions
     engine.ts              triggers, Web Lock, lifecycle
