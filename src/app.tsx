@@ -23,15 +23,23 @@ export function App() {
       <Show
         when={showSettings()}
         fallback={
-          <main>
-            <header>
-              <h1>Sure Quick Entry</h1>
+          <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col">
+            <header class="sticky top-0 flex items-center gap-2 border-b border-line bg-surface pt-safe px-safe pb-3">
+              <h1 class="mr-auto min-w-0 truncate text-lg font-semibold">Sure Quick Entry</h1>
               <Show when={paused()}>
-                <button type="button" onClick={() => setOpened(true)}>
+                <button
+                  type="button"
+                  class="min-h-11 shrink-0 rounded-lg bg-warning-surface px-3 font-medium text-warning"
+                  onClick={() => setOpened(true)}
+                >
                   Sync paused
                 </button>
               </Show>
-              <button type="button" onClick={() => setOpened(true)}>
+              <button
+                type="button"
+                class="min-h-11 shrink-0 rounded-lg px-3 font-medium text-accent"
+                onClick={() => setOpened(true)}
+              >
                 Settings
               </button>
             </header>

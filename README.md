@@ -269,6 +269,8 @@ const recent = createLiveQuery(accountId, (id) =>
 ### Mobile details
 
 - Call `navigator.storage.persist()` on first run: Settings requests it when the settings are first saved, inside the tap on Save. On iOS, an app installed to the home screen is exempt from the 7-day storage eviction that applies to Safari tabs; an unsent outbox must not be lost.
+- The viewport covers the notch (`viewport-fit=cover`), so screens pad themselves with the `pt-safe`, `px-safe` and `pb-safe` utilities from `src/index.css`; without them the header sits under the status bar and the last button under the home indicator in standalone mode.
+- Every button and input is at least 44 px tall (`min-h-11`), and inputs use 16 px text (`text-base`): iOS Safari zooms the page in when it focuses a field with smaller text.
 - The amount field uses `inputmode="decimal"` plus an on-screen operator row (`+ − × ÷`), because the decimal keyboard has no operators.
 - Dates are stored as local `YYYY-MM-DD`, never as ISO timestamps; otherwise an entry made at 00:30 lands on the previous day.
 - The calculator is a small expression parser. Never use `eval` or `new Function`.
@@ -293,7 +295,7 @@ Effort follows risk: most of the complexity is in the sync engine, so most of th
    - two opposite transactions are auto-matched into a transfer;
    - balance update latency.
 3. **Components** in Vitest browser mode with Playwright (real IndexedDB): entry form (sign, calculator, sticky account/category), pending rows. The Dexie schema and `createLiveQuery()` are tested here too: the node project resolves `solid-js` to its non-reactive server build. Browser test files share one origin, and `schema.browser.test.tsx` deletes the app's `db`, so they run one file at a time (`fileParallelism: false`) and a test that is not about the app's `db` opens its own uniquely named database. `@solidjs/testing-library` registers no automatic cleanup without Vitest globals, so a file that renders components calls `cleanup()` in `afterEach`. A browser test that needs Sure starts `setupWorker(...sure.handlers)` from `msw/browser`; the browser project serves the worker script through `msw/vite` in `worker-only` mode (see `test/fake-sure/fake-sure.browser.test.tsx`).
-4. **E2E** with Playwright: install the service worker → `context.setOffline(true)` → reload → app loads; enter offline → pending row → back online → synced.
+4. **E2E** with Playwright: install the service worker → `context.setOffline(true)` → reload → app loads; enter offline → pending row → back online → synced. `e2e/style.spec.ts` checks what only the built CSS shows: no request leaves the origin, every control is at least 44 px tall, and the colors follow the system scheme.
 5. **Manual checklist on a real iPhone:** install to home screen, storage persistence after several days, decimal keyboard and operator row.
 
 orval's generated MSW handlers (`mock: true`) always answer `200` and fill fields with random strings, so the sync engine tests use the hand-written fake instead, and the client is generated without them. Seed faker in test setup.

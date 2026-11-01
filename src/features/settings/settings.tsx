@@ -40,18 +40,19 @@ export function Settings(props: SettingsProps) {
   }
 
   return (
-    <main>
-      <h1>Settings</h1>
+    <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 pt-safe px-safe pb-safe">
+      <h1 class="text-2xl font-semibold">Settings</h1>
       <Show when={props.paused}>
-        <p role="status">
+        <p role="status" class="rounded-lg bg-warning-surface p-3 text-warning">
           Sure rejected the API key, so sync is paused. Your entries stay on this device and are
           sent once you save a key that works.
         </p>
       </Show>
-      <form onSubmit={submit}>
-        <label>
+      <form class="flex flex-col gap-4" onSubmit={submit}>
+        <label class="flex flex-col gap-1 font-medium">
           Sure URL
           <input
+            class="min-h-11 rounded-lg border border-line bg-surface-raised px-3 text-base font-normal"
             name="baseUrl"
             type="url"
             required
@@ -60,9 +61,10 @@ export function Settings(props: SettingsProps) {
             defaultValue={props.settings?.baseUrl}
           />
         </label>
-        <label>
+        <label class="flex flex-col gap-1 font-medium">
           API key
           <input
+            class="min-h-11 rounded-lg border border-line bg-surface-raised px-3 text-base font-normal"
             name="apiKey"
             type="password"
             required
@@ -70,13 +72,27 @@ export function Settings(props: SettingsProps) {
             defaultValue={props.settings?.apiKey}
           />
         </label>
-        <Show when={failure()}>{(message) => <p role="alert">{message()}</p>}</Show>
-        <button type="submit" disabled={checking()}>
+        <Show when={failure()}>
+          {(message) => (
+            <p role="alert" class="rounded-lg bg-danger-surface p-3 text-danger">
+              {message()}
+            </p>
+          )}
+        </Show>
+        <button
+          type="submit"
+          class="min-h-11 rounded-lg bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
+          disabled={checking()}
+        >
           {checking() ? "Checking…" : "Save"}
         </button>
         <Show when={props.onClose}>
           {(close) => (
-            <button type="button" onClick={() => close()()}>
+            <button
+              type="button"
+              class="min-h-11 rounded-lg border border-line px-4 font-medium"
+              onClick={() => close()()}
+            >
               Cancel
             </button>
           )}
