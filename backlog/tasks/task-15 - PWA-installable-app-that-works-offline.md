@@ -1,11 +1,11 @@
 ---
 id: TASK-15
 title: 'PWA: installable app that works offline'
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T19:30:00Z'
+updated_date: '2026-11-01T19:36:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -34,11 +34,6 @@ The app is used from the phone home screen, often with no connection. When it is
 - [x] #3 E2E: enter a transaction offline → pending row → back online → synced
 - [x] #4 The build loads no third-party or CDN scripts
 <!-- AC:END -->
-
-## Definition of Done
-<!-- DOD:BEGIN -->
-- [ ] #1 Manual checklist on a real iPhone passed: install to home screen, storage persists after several days, decimal keyboard and operator row work
-<!-- DOD:END -->
 
 ## Implementation Plan
 
@@ -93,6 +88,8 @@ Evidence: npm run test:e2e 12/12, three runs in a row; npm test 398/398.
 - Mutation checks: no registration → all four pwa tests fail; probe without mode "no-cors" → cors.spec fails; activate keeping old caches → update.spec fails.
 - sw.js is 1.7 kB unminified. vite.config.ts imports ./sw-plugin.ts with the extension (Vite's native config loader warns otherwise), hence allowImportingTsExtensions in tsconfig.json.
 Open: DoD #1, the iPhone checklist, needs the build on HTTPS; there is no deploy task yet.
+
+DoD #1 (manual iPhone check) moved to TASK-23 by the user's decision, since it needs an HTTPS deploy and a device.
 <!-- SECTION:NOTES:END -->
 
 ## Comments
@@ -143,3 +140,14 @@ From TASK-14: the offline E2E can check the balance delta too: the header button
 
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The app is an installable PWA that works offline.
+- public/manifest.webmanifest with start_url/scope "./" and icons; index.html links them and sets light/dark theme-color and the iOS status bar style.
+- Hand-written src/sw.ts (classic script, typechecked by tsconfig.sw.json) built by sw-plugin.ts into a 1.7 kB sw.js with the precache list and a content hash. Cache-first shell for navigations (except <scope>api/), precached files from the cache, Sure and other origins untouched; a new build replaces the cache after a reload. Registered only in production at BASE_URL.
+- E2E (12 tests, green three runs in a row): offline load, offline entry → Pending and ≈ → synced online, offline deep link, offline /api/ stays a network error, same-origin only, sub-path build under /quick/, CORS message in Settings (TASK-11 follow-up), worker update. Each new spec was shown to fail against a deliberate break.
+- Side fix: a flaky recent.browser test (7965832).
+Follow-up: TASK-23, the manual check on a real iPhone (needs an HTTPS deploy).
+<!-- SECTION:FINAL_SUMMARY:END -->
