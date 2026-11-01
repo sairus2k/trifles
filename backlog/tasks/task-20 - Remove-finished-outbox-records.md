@@ -1,11 +1,11 @@
 ---
 id: TASK-20
 title: Remove finished outbox records
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T15:54:00Z'
-updated_date: '2026-11-01T20:27:00Z'
+updated_date: '2026-11-01T20:36:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -26,11 +26,11 @@ Push marks sent records `done` and nothing deletes them, so the outbox grows for
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A done create or transfer is removed once its transaction(s) are in the cache and its balance delta has cleared
-- [ ] #2 A done record whose date is older than every cached transaction is removed once its delta has cleared
-- [ ] #3 A done update or delete is removed after a transactions pull that started after it was sent
-- [ ] #4 Pending, sending and failed records are never removed by the cleanup
-- [ ] #5 Tested against the fake
+- [x] #1 A done create or transfer is removed once its transaction(s) are in the cache and its balance delta has cleared
+- [x] #2 A done record whose date is older than every cached transaction is removed once its delta has cleared
+- [x] #3 A done update or delete is removed after a transactions pull that started after it was sent
+- [x] #4 Pending, sending and failed records are never removed by the cleanup
+- [x] #5 Tested against the fake
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -71,6 +71,12 @@ Rule (simpler than the description's, same ACs): a `done` record is removed by t
 Not changed: rows.ts, the Balances screen and the schema. `UNPULLED_REASON` ("can be changed after the next sync") is shown for an old-dated create while its delta is pending, though it will never be pullable; it disappears with the record, so it is left as is.
 <!-- SECTION:PLAN:END -->
 
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented as planned in 2566d95. The new tests in src/sync/pull.test.ts (describe "finished records") were run against the code before the change: 7 of 8 fail there; "a failed pull drops nothing" passes either way, as it should. The outbox helper in that describe orders by createdAt: toArray() orders by the random clientId, which made the update/delete test flaky (2 of 5 runs) until fixed. pull.test.ts ran 15 times and engine.test.ts 8 times with no failure.
+<!-- SECTION:NOTES:END -->
+
 ## Comments
 
 <!-- COMMENTS:BEGIN -->
@@ -83,3 +89,9 @@ From TASK-13: the recent list (src/features/recent/rows.ts) keeps a done record 
 
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+A done outbox record is now removed by pullRecent() (src/sync/pull.ts): the pull takes the clientIds of done records before its first request (doneClientIds) and, inside the same Dexie transaction that replaces the cache, drops those whose every account is recalculated (isApplied) or no longer cached (dropFinished in src/sync/outbox.ts). Updates and deletes carry no delta, so they go on the first pull that started after they were sent. This replaces the description's rule (transaction cached, or dated before the window) with "a pull after the send": it meets every AC and also clears a create deleted in Sure by another client or on an account the key no longer reaches, which the literal rule would keep as a locked row forever. pendingDeltas() shares the new entriesOf() helper. Engine tests that waited for status done now use synced() (record gone, transaction on the fake once), since a full run drops the record in the same run. README: data flow step 4, Pull rule, Recent list overlay, Testing scenario, project structure. Verified: npm test 416/416 in the pre-commit hook, typecheck, lint, format. Not changed: UNPULLED_REASON still says a create can be changed after the next sync while an old-dated one waits for its delta; it leaves with the record.
+<!-- SECTION:FINAL_SUMMARY:END -->
