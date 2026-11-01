@@ -4,7 +4,7 @@ title: 'Sync engine: triggers, single worker and lifecycle'
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T15:39:00Z'
+updated_date: '2026-11-01T16:00:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -51,6 +51,15 @@ created: 2026-11-01T15:39:00Z
 ---
 
 From TASK-8 planning: a record left `sending` by a closed tab or a crash holds the queue forever (`claimNext` stops at a `sending` head). Once the push loop runs under the Web Lock, reset such records to `pending` with `attempts + 1` (the request may have reached Sure) before calling `push()`. This is safe only under the lock: without it, a second tab would requeue a request still in flight.
+
+---
+
+author: @claude
+created: 2026-11-01T16:00:00Z
+
+---
+
+From TASK-9: call `pullReference()` (accounts, categories, merchants) on every online start and `pullRecent()` (accounts, latest 100 transactions, suggestions) after a push that sent something, on the timer and on demand. Sure recalculates balances in a background job, so the pull right after a push often still sees the old balance; the pending delta covers it until a later pull (the timer) sees the recalculated account. Both throw `SureError` like push (401 → pause).
 
 ---
 <!-- COMMENTS:END -->

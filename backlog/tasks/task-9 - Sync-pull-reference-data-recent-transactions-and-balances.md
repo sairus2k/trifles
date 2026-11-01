@@ -1,11 +1,11 @@
 ---
 id: TASK-9
 title: 'Sync pull: reference data, recent transactions and balances'
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T15:54:00Z'
+updated_date: '2026-11-01T16:00:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -27,10 +27,10 @@ Screens read only from the local cache, so pull keeps it fresh. Sure recalculate
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Accounts, categories and merchants are pulled and replace the cache
-- [ ] #2 The latest 100 transactions are pulled with `per_page=100` and amounts are read from `amount_decimal` only
-- [ ] #3 The pending balance delta clears only after the account `updated_at` is newer than the send time (tested)
-- [ ] #4 `suggestions` is updated with merchant → most used category, `count` and `lastUsedAt`
+- [x] #1 Accounts, categories and merchants are pulled and replace the cache
+- [x] #2 The latest 100 transactions are pulled with `per_page=100` and amounts are read from `amount_decimal` only
+- [x] #3 The pending balance delta clears only after the account `updated_at` is newer than the send time (tested)
+- [x] #4 `suggestions` is updated with merchant → most used category, `count` and `lastUsedAt`
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -51,6 +51,16 @@ Research (Sure 131e786, src/sync, src/db/schema.ts, test/fake-sure):
 
 Decisions (approved 2026-11-01): server time from `created_at` instead of a device `sentAt`; delta only for create/transfer; removing done outbox records is a separate task.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Evidence (npm test, 202 passed; src/sync/pull.test.ts):
+- AC1: pullReference replaces accounts/categories/merchants, reads every page at per_page=100, leaves the cache untouched on a failed request; a JSON 4xx is thrown as SureError.
+- AC2: pullRecent sends GET /transactions?per_page=100, keeps 100 of 105, maps amount_decimal while `amount` holds a different display string.
+- AC3: send at 10:00:00.700 with pauseAccountSync → delta kept after pull, kept in the next second, cleared after resumeAccountSync; same-second recalculation clears; transfer held on both accounts. Mutations (`>` instead of `>=`, ignoring status, counting failed) each fail a test.
+- AC4: most used category per merchant, tie → latest date, count, lastUsedAt = latest created_at; merchants outside the window kept.
+<!-- SECTION:NOTES:END -->
 
 ## Comments
 
@@ -75,3 +85,16 @@ Findings from TASK-8 (push):
 
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Pull keeps the local cache fresh and decides when a pending balance delta goes away.
+
+- `src/sync/pull.ts`: `pullReference()` (accounts, categories, merchants, all pages) and `pullRecent()` (accounts + latest 100 transactions + rebuilt merchant → category suggestions). Requests first, then one Dexie transaction, so a failed pull changes nothing; a JSON error the spec does not declare is thrown as `SureError`.
+- Outbox `appliedAt`: push keeps the created transaction `created_at` (the :out leg for a transfer). `pendingDeltas()` in outbox.ts sums queued, sending and sent creates/transfers per account (decimal string, scale 4, in the balance direction) until the account `updatedAt >= appliedAt`. Both are whole seconds on the server clock, so same-second recalculation clears and device clock skew does not matter. This replaces the device `sentAt` suggested in the TASK-8 comment.
+- `TransactionRecord.externalId` added for matching outbox records (TASK-13, TASK-20).
+- README: data flow, schema table, Pull rule, Sure notes, Testing.
+
+Not covered: deltas for update/delete (no server time on DELETE); currency → scale for display (TASK-14); removing done outbox records (TASK-20). Sure only moves `updated_at` when the balance changes, which always holds for a non-zero create or transfer.
+<!-- SECTION:FINAL_SUMMARY:END -->
