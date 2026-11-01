@@ -12,6 +12,9 @@ import { todayLocal } from "../../src/domain/dates";
 
 const { baseUrl, readWriteKey, readKey } = inject("sure");
 
+/** Another family member's account, not shared with the keys' user (seed.rb). */
+export const unsharedAccountId = inject("sure").unsharedAccountId;
+
 /** Request options for the generated client: the seeded `read_write` key unless told otherwise. */
 export function as(key: "read_write" | "read" = "read_write"): { settings: SureSettings } {
   return { settings: { baseUrl, apiKey: key === "read" ? readKey : readWriteKey } };

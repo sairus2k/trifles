@@ -1,6 +1,7 @@
 import { beforeAll, expect, test } from "vitest";
 import {
   deleteApiV1TransactionsId,
+  getApiV1AccountsId,
   getApiV1Transactions,
   patchApiV1TransactionsId,
   postApiV1Transactions,
@@ -8,7 +9,7 @@ import {
 } from "../../src/api/generated/sure";
 import { SureError } from "../../src/api/http";
 import { todayLocal } from "../../src/domain/dates";
-import { as, createTransaction, seeded, uniqueAmount } from "./sure";
+import { as, createTransaction, seeded, uniqueAmount, unsharedAccountId } from "./sure";
 
 let ids: Awaited<ReturnType<typeof seeded>>;
 
@@ -58,11 +59,16 @@ test("PATCH and DELETE of an unknown transaction answer 404 not_found", async ()
   expect(remove).toMatchObject({ status: 404, data: { error: "not_found" } });
 });
 
-test("a create for an unknown account answers 500 (TASK-19)", async () => {
+// Push tells such an account from a transient 500 by looking it up (TASK-19).
+test.each([
+  ["an unknown account", () => crypto.randomUUID()],
+  ["another member's account not shared with the key", () => unsharedAccountId],
+])("%s: a create answers 500 and GET /accounts/{id} 404", async (_, accountId) => {
+  const id = accountId();
   const create = postApiV1Transactions(
     {
       transaction: {
-        account_id: crypto.randomUUID(),
+        account_id: id,
         date: todayLocal(),
         amount: uniqueAmount(),
         nature: "expense",
@@ -77,6 +83,11 @@ test("a create for an unknown account answers 500 (TASK-19)", async () => {
 
   await expect(create).rejects.toThrow(SureError);
   await expect(create).rejects.toMatchObject({ kind: "http", status: 500 });
+  const lookup = await getApiV1AccountsId(id, { include_disabled: true }, as());
+  expect(lookup).toMatchObject({
+    status: 404,
+    data: { error: "not_found", message: "Account not found" },
+  });
 });
 
 test("a read-only key answers 403 to a create and creates nothing", async () => {

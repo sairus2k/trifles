@@ -5,7 +5,7 @@ import type { TestProject } from "vitest/node";
 
 declare module "vitest" {
   export interface ProvidedContext {
-    sure: { baseUrl: string; readWriteKey: string; readKey: string };
+    sure: { baseUrl: string; readWriteKey: string; readKey: string; unsharedAccountId: string };
   }
 }
 
@@ -14,6 +14,7 @@ const COMPOSE_FILE = fileURLToPath(new URL("./compose.yml", import.meta.url));
 const SPEC_README = fileURLToPath(new URL("../../spec/README.md", import.meta.url));
 const READ_WRITE_KEY = "contract-read-write-key";
 const READ_KEY = "contract-read-key";
+const UNSHARED_ACCOUNT_ID = "0b6f3c2e-5d4a-4f1e-9c8b-7a6d5e4f3c2b";
 
 /** Starts the Sure commit pinned in spec/README.md, seeds it, and removes it after the run. */
 export default function setup(project: TestProject) {
@@ -42,6 +43,8 @@ export default function setup(project: TestProject) {
     `SURE_READ_WRITE_KEY=${READ_WRITE_KEY}`,
     "-e",
     `SURE_READ_KEY=${READ_KEY}`,
+    "-e",
+    `SURE_UNSHARED_ACCOUNT_ID=${UNSHARED_ACCOUNT_ID}`,
     "web",
     "bin/rails",
     "runner",
@@ -52,6 +55,7 @@ export default function setup(project: TestProject) {
     baseUrl: `http://127.0.0.1:${port}`,
     readWriteKey: READ_WRITE_KEY,
     readKey: READ_KEY,
+    unsharedAccountId: UNSHARED_ACCOUNT_ID,
   });
 
   return () => {

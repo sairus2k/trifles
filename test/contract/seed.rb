@@ -40,3 +40,26 @@ end
 
 family.categories.create!(name: "Groceries", color: "#10b981")
 family.merchants.create!(name: "Corner Shop")
+
+# Another member's account the key's user cannot reach (TASK-19). With the family's default
+# sharing, create_and_sync shares it with every other member, so the share is removed. The id is
+# fixed because the key cannot list the account.
+other = family.users.create!(
+  email: "other@example.com",
+  first_name: "Other",
+  last_name: "Member",
+  role: "member",
+  password: "Password1!",
+  onboarded_at: Time.current
+)
+Account.create_and_sync({
+  id: ENV.fetch("SURE_UNSHARED_ACCOUNT_ID"),
+  family: family,
+  owner: other,
+  name: "Unshared",
+  balance: 1000,
+  currency: "USD",
+  accountable_type: "Depository",
+  accountable_attributes: {}
+})
+AccountShare.where(account_id: ENV.fetch("SURE_UNSHARED_ACCOUNT_ID")).delete_all
