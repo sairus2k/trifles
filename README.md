@@ -121,15 +121,16 @@ Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to t
 - **CORS:** Sure enables `Rack::Cors` with `origins "*"` for `/api/*`, so the app can be hosted on any origin. A reverse proxy or Cloudflare Access in front of Sure must let `OPTIONS` preflight requests through to Rails.
 - **Endpoints used in v1:**
 
-  | Purpose        | Endpoint                                                                    |
-  | -------------- | --------------------------------------------------------------------------- |
-  | Balances       | `GET /api/v1/accounts`                                                      |
-  | Recent         | `GET /api/v1/transactions?per_page=100` (already reverse chronological)     |
-  | Create         | `POST /api/v1/transactions`                                                 |
-  | Edit / delete  | `PATCH`, `DELETE /api/v1/transactions/{id}`                                 |
-  | Reference data | `GET /api/v1/categories`, `GET /api/v1/merchants`, `POST /api/v1/merchants` |
+  | Purpose        | Endpoint                                                                |
+  | -------------- | ----------------------------------------------------------------------- |
+  | Balances       | `GET /api/v1/accounts`                                                  |
+  | Recent         | `GET /api/v1/transactions?per_page=100` (already reverse chronological) |
+  | Create         | `POST /api/v1/transactions`                                             |
+  | Edit / delete  | `PATCH`, `DELETE /api/v1/transactions/{id}`                             |
+  | Reference data | `GET /api/v1/categories`, `GET /api/v1/merchants`                       |
 
 - **Create payload:** send a positive `amount` and `nature: "expense" | "income"`. Sure stores expenses as positive and income as negative.
+- **Merchants cannot be created through the API:** `POST /api/v1/merchants` is a CSV import, and a create takes only `merchant_id`. The form sends `merchant_id` for a name that matches a cached merchant and puts any other name in the transaction `name` only.
 - **Currency:** always send the account's `currency`. If omitted, Sure falls back to the family currency, which is wrong for foreign-currency accounts.
 - **Update payload:** `PATCH` ignores `null` fields, blank `category_id` / `merchant_id` and `currency`, so an update cannot clear a category or a merchant. Notes clear with `""`.
 - **Unknown account on create:** Sure answers `500`, not `404`: `create` rescues the `RecordNotFound` itself before the API's `rescue_from` can turn it into a `404`. Push retries it like any `5xx`.
