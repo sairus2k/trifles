@@ -20,6 +20,7 @@ export const FAKE_SURE_URL = "https://sure.test";
 
 export type FakeSureRoute =
   | "GET /api/v1/accounts"
+  | "GET /api/v1/accounts/:id"
   | "GET /api/v1/categories"
   | "GET /api/v1/merchants"
   | "GET /api/v1/transactions"
@@ -57,6 +58,11 @@ const ERROR_BODIES: Record<number, ErrorResponse> = {
 const TRANSACTION_NOT_FOUND: ErrorResponse = {
   error: "not_found",
   message: "Transaction not found",
+};
+// AccountsController#show renders its own body for an account the key's user cannot access.
+const ACCOUNT_NOT_FOUND: ErrorResponse = {
+  error: "not_found",
+  message: "Account not found",
 };
 const INTERNAL_ERROR: ErrorResponse = {
   error: "internal_server_error",
@@ -252,6 +258,12 @@ export function createFakeSure(seed: Partial<FakeSureSeed> = {}) {
     "GET /api/v1/accounts": (url) => {
       const { items, pagination } = paginate(byName(state.accounts), url);
       return HttpResponse.json({ accounts: items, pagination });
+    },
+    "GET /api/v1/accounts/:id": (_, __, params) => {
+      const account = state.accounts.find((a) => a.id === params.id);
+      return account
+        ? HttpResponse.json(account)
+        : HttpResponse.json(ACCOUNT_NOT_FOUND, { status: 404 });
     },
     "GET /api/v1/categories": (url) => {
       const { items, pagination } = paginate(byName(state.categories), url);

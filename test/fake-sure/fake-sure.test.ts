@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import {
   deleteApiV1TransactionsId,
   getApiV1Accounts,
+  getApiV1AccountsId,
   getApiV1Categories,
   getApiV1Merchants,
   getApiV1Transactions,
@@ -321,6 +322,18 @@ describe("reference data", () => {
       "Salary",
     ]);
     expect(merchants.data.map((m) => m.name)).toEqual(["Lidl", "Starbucks"]);
+  });
+
+  test("GET /accounts/{id} returns the account, or 404 not_found once it is gone", async () => {
+    const found = await getApiV1AccountsId("acc-cash");
+    sure.accounts.splice(sure.accounts.indexOf(balanceOf("acc-cash")), 1);
+    const gone = await getApiV1AccountsId("acc-cash");
+
+    expect(found).toMatchObject({ status: 200, data: { id: "acc-cash", currency: "EUR" } });
+    expect(gone).toMatchObject({
+      status: 404,
+      data: { error: "not_found", message: "Account not found" },
+    });
   });
 
   test("a seed replaces the defaults", async () => {
