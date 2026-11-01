@@ -90,6 +90,11 @@ export type OutboxRecord = {
   nextAttemptAt: number;
   lastError: string | null;
   createdAt: number;
+  /**
+   * When Sure applied a sent create or transfer: the transaction's `created_at`, on the server clock
+   * and in whole seconds like the account's `updated_at` it is compared with.
+   */
+  appliedAt?: number;
 } & (
   | { op: "create"; payload: EntryPayload }
   | { op: "transfer"; payload: TransferPayload }

@@ -94,8 +94,8 @@ export function claimNext(): Promise<OutboxRecord | undefined> {
   });
 }
 
-export function markDone(clientId: string): Promise<void> {
-  return finishAttempt(clientId, { status: "done", lastError: null });
+export function markDone(clientId: string, appliedAt?: number): Promise<void> {
+  return finishAttempt(clientId, { status: "done", lastError: null, appliedAt });
 }
 
 export function markFailed(clientId: string, error: string): Promise<void> {
@@ -108,7 +108,7 @@ export function markRetry(clientId: string, error: string, nextAttemptAt: number
 
 async function finishAttempt(
   clientId: string,
-  changes: Pick<OutboxRecord, "status" | "lastError"> & { nextAttemptAt?: number },
+  changes: Pick<OutboxRecord, "status" | "lastError" | "appliedAt"> & { nextAttemptAt?: number },
 ): Promise<void> {
   await db.transaction("rw", db.outbox, async () => {
     const record = await db.outbox.get(clientId);

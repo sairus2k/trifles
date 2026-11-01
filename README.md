@@ -63,20 +63,20 @@ Sure API (/api/v1, X-Api-Key)
 ### Data flow for a new transaction
 
 1. The form validates input and writes **one outbox record** in a single Dexie transaction. The UI updates immediately through the live query.
-2. The sync engine picks the record, sends `POST /api/v1/transactions` with `external_id = clientId`, and marks the record as done on `200` or `201`.
+2. The sync engine picks the record, sends `POST /api/v1/transactions` with `external_id = clientId`, and marks the record as done on `200` or `201`, keeping the transaction's `created_at` as `appliedAt`.
 3. The engine pulls the affected account. Its balance replaces the pending delta once the account's `updated_at` is newer than the send time (Sure recalculates balances asynchronously).
 
 ### Local schema (Dexie)
 
-| Table          | Key            | Notes                                                                                                                |
-| -------------- | -------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `accounts`     | `id`           | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt`                        |
-| `categories`   | `id`           | `name`, `color`, `icon` (Sure no longer has category classification)                                                 |
-| `merchants`    | `id`           | `name`                                                                                                               |
-| `transactions` | `id`           | Server transactions; index on `date` and `accountId`                                                                 |
-| `suggestions`  | `merchantName` | `merchantId`, `categoryId`, `count`, `lastUsedAt`                                                                    |
-| `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`; index on `createdAt` (queue order) |
-| `meta`         | `key`          | Instance URL, API key, last pull timestamps                                                                          |
+| Table          | Key            | Notes                                                                                                                             |
+| -------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `accounts`     | `id`           | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt`                                     |
+| `categories`   | `id`           | `name`, `color`, `icon` (Sure no longer has category classification)                                                              |
+| `merchants`    | `id`           | `name`                                                                                                                            |
+| `transactions` | `id`           | Server transactions; index on `date` and `accountId`                                                                              |
+| `suggestions`  | `merchantName` | `merchantId`, `categoryId`, `count`, `lastUsedAt`                                                                                 |
+| `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`, `appliedAt`; index on `createdAt` (queue order) |
+| `meta`         | `key`          | Instance URL, API key, last pull timestamps                                                                                       |
 
 Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pending | sending | failed | done`.
 

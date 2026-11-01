@@ -23,9 +23,11 @@ export interface PushResult {
   paused: boolean;
 }
 
-type Reply = { status: number; data: unknown };
+type Reply = { status: number; data: unknown; appliedAt?: number };
 
-type Outcome = { kind: "done" } | { kind: "failed" | "paused" | "retry"; error: string };
+type Outcome =
+  | { kind: "done"; appliedAt?: number }
+  | { kind: "failed" | "paused" | "retry"; error: string };
 
 /**
  * Sends the outbox to Sure one record at a time, in creation order, until the queue is empty, its
@@ -44,7 +46,7 @@ export async function push(): Promise<PushResult> {
     }
     switch (outcome.kind) {
       case "done":
-        await markDone(record.clientId);
+        await markDone(record.clientId, outcome.appliedAt);
         sent++;
         break;
       case "failed":
@@ -74,7 +76,7 @@ async function attempt(record: OutboxRecord): Promise<Outcome> {
     // a retry is safe because every create carries its external_id.
     return { kind: "retry", error: error.message };
   }
-  if (isSuccess(reply)) return { kind: "done" };
+  if (isSuccess(reply)) return { kind: "done", appliedAt: reply.appliedAt };
   // A read-only key: every write would answer 403, so failing the records one by one would lose them.
   if (reply.status === 403) return { kind: "paused", error: serverMessage(reply) };
   // 422, and statuses the spec does not declare such as 404, are definitive answers.
@@ -89,7 +91,10 @@ async function send(record: OutboxRecord): Promise<Reply> {
       // Both legs go out on every attempt: Sure answers 200 for a leg it already has.
       const [out, into] = transferLegs(record.clientId, record.payload);
       const first = await create(out.externalId, out.payload);
-      return isSuccess(first) ? create(into.externalId, into.payload) : first;
+      if (!isSuccess(first)) return first;
+      const second = await create(into.externalId, into.payload);
+      // Both accounts are recalculated after the :out leg, so its time serves the transfer.
+      return { ...second, appliedAt: first.appliedAt };
     }
     case "update":
       return patchApiV1TransactionsId(
@@ -105,8 +110,12 @@ async function send(record: OutboxRecord): Promise<Reply> {
   }
 }
 
-function create(externalId: string, entry: EntryPayload): Promise<Reply> {
-  return postApiV1Transactions(createBody(externalId, entry), timeout());
+// A repeated external_id answers 200 with the original transaction, so `created_at` is when Sure
+// first applied the write.
+async function create(externalId: string, entry: EntryPayload): Promise<Reply> {
+  const reply = await postApiV1Transactions(createBody(externalId, entry), timeout());
+  if (reply.status === 422) return reply;
+  return { ...reply, appliedAt: Date.parse(reply.data.created_at) };
 }
 
 function createBody(externalId: string, entry: EntryPayload): PostApiV1TransactionsBody {

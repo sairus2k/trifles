@@ -165,9 +165,24 @@ describe("create", () => {
     later(5 * 60_000);
     expect(await push()).toEqual({ sent: 1, paused: false });
 
-    expect(await record(clientId)).toMatchObject({ status: "done", attempts: 2, lastError: null });
+    // The 200 carries the original transaction, so the time is when Sure first applied it.
+    expect(await record(clientId)).toMatchObject({
+      status: "done",
+      attempts: 2,
+      lastError: null,
+      appliedAt: NOW,
+    });
     expect(postedExternalIds()).toEqual([clientId, clientId]);
     expect(sure.transactions).toHaveLength(1);
+  });
+
+  test("records when Sure applied the write, in whole seconds of the server clock", async () => {
+    vi.setSystemTime(NOW + 700);
+    const clientId = await enqueue({ op: "create", payload: coffee });
+
+    await push();
+
+    expect(await record(clientId)).toMatchObject({ status: "done", appliedAt: NOW });
   });
 });
 
@@ -383,7 +398,8 @@ describe("transfer", () => {
     later(5 * 60_000);
     expect(await push()).toEqual({ sent: 1, paused: false });
 
-    expect(await record(clientId)).toMatchObject({ status: "done" });
+    // The :out leg went out first, so its time comes from the first attempt.
+    expect(await record(clientId)).toMatchObject({ status: "done", appliedAt: NOW });
     expect(sure.transactions.map((t) => t.external_id)).toEqual([
       `${clientId}:out`,
       `${clientId}:in`,
