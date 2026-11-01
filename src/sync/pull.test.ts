@@ -3,8 +3,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import { FAKE_SURE_URL, createFakeSure, defaultSeed, type FakeSure } from "../../test/fake-sure";
 import { postApiV1Transactions, type PostApiV1TransactionsBody } from "../api/generated/sure";
 import { SureError, configureSure } from "../api/http";
-import { db } from "../db/schema";
+import { db, type EntryPayload } from "../db/schema";
+import { enqueue, pendingDeltas } from "./outbox";
 import { pullRecent, pullReference } from "./pull";
+import { push } from "./push";
 
 const NOW = new Date("2026-11-01T10:00:00Z").getTime();
 const SEEDED_AT = Date.parse("2026-10-01T09:00:00Z");
@@ -279,5 +281,123 @@ describe("suggestions", () => {
       expect.objectContaining({ merchantName: "Lidl", categoryId: "cat-groceries", count: 1 }),
       expect.objectContaining({ merchantName: "Old bakery", count: 4 }),
     ]);
+  });
+});
+
+describe("pending balance delta", () => {
+  const coffee: EntryPayload = {
+    accountId: "acc-cash",
+    date: "2026-11-01",
+    amount: "3.50",
+    nature: "expense",
+    currency: "EUR",
+    name: "Coffee",
+    notes: null,
+    categoryId: null,
+    merchantId: null,
+  };
+
+  test("clears only once the account is recalculated after Sure applied the write", async () => {
+    await pullReference();
+    vi.setSystemTime(NOW + 700);
+    await enqueue({ op: "create", payload: coffee });
+    expect(await pendingDeltas()).toEqual(new Map([["acc-cash", "-3.5000"]]));
+
+    sure.pauseAccountSync();
+    await push();
+    await pullRecent();
+    // Sent, but the balance Sure returns does not include it yet.
+    expect(await db.accounts.get("acc-cash")).toMatchObject({ balanceCents: 100_000 });
+    expect(await pendingDeltas()).toEqual(new Map([["acc-cash", "-3.5000"]]));
+
+    vi.setSystemTime(NOW + 1500);
+    await pullRecent();
+    expect(await pendingDeltas()).toEqual(new Map([["acc-cash", "-3.5000"]]));
+
+    sure.resumeAccountSync();
+    await pullRecent();
+    expect(await db.accounts.get("acc-cash")).toMatchObject({ balanceCents: 99_650 });
+    expect(await pendingDeltas()).toEqual(new Map());
+  });
+
+  test("a recalculation in the same second as the write clears it", async () => {
+    await pullReference();
+    vi.setSystemTime(NOW + 700);
+    await enqueue({ op: "create", payload: coffee });
+    sure.pauseAccountSync();
+    await push();
+
+    // Sure renders both times in whole seconds: 10:00:00.
+    vi.setSystemTime(NOW + 900);
+    sure.resumeAccountSync();
+    await pullRecent();
+
+    expect(await pendingDeltas()).toEqual(new Map());
+  });
+
+  test("follows the balance direction: an expense lowers an asset and raises a liability", async () => {
+    await pullReference();
+    await enqueue({ op: "create", payload: { ...coffee, accountId: "acc-card" } });
+    await enqueue({ op: "create", payload: { ...coffee, nature: "income", amount: "20" } });
+    await enqueue({
+      op: "transfer",
+      payload: {
+        fromAccountId: "acc-card",
+        toAccountId: "acc-cash",
+        date: "2026-11-01",
+        amount: "100",
+        currency: "EUR",
+        name: "Cash advance",
+        notes: null,
+      },
+    });
+
+    expect(await pendingDeltas()).toEqual(
+      new Map([
+        ["acc-card", "103.5000"],
+        ["acc-cash", "120.0000"],
+      ]),
+    );
+  });
+
+  test("a transfer stays on both accounts until Sure recalculates them", async () => {
+    await pullReference();
+    await enqueue({
+      op: "transfer",
+      payload: {
+        fromAccountId: "acc-card",
+        toAccountId: "acc-cash",
+        date: "2026-11-01",
+        amount: "100",
+        currency: "EUR",
+        name: "Cash advance",
+        notes: null,
+      },
+    });
+
+    sure.pauseAccountSync();
+    await push();
+    await pullRecent();
+    expect(await pendingDeltas()).toEqual(
+      new Map([
+        ["acc-card", "100.0000"],
+        ["acc-cash", "100.0000"],
+      ]),
+    );
+
+    sure.resumeAccountSync();
+    await pullRecent();
+    expect(await pendingDeltas()).toEqual(new Map());
+  });
+
+  test("a failed record adds nothing", async () => {
+    await pullReference();
+    sure.failNext("POST /api/v1/transactions", { status: 422 });
+    await enqueue({ op: "create", payload: coffee });
+
+    await push();
+
+    expect(await db.outbox.toArray()).toMatchObject([{ status: "failed" }]);
+    expect(await pendingDeltas()).toEqual(new Map());
   });
 });

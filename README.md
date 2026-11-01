@@ -64,7 +64,7 @@ Sure API (/api/v1, X-Api-Key)
 
 1. The form validates input and writes **one outbox record** in a single Dexie transaction. The UI updates immediately through the live query.
 2. The sync engine picks the record, sends `POST /api/v1/transactions` with `external_id = clientId`, and marks the record as done on `200` or `201`, keeping the transaction's `created_at` as `appliedAt`.
-3. The engine pulls the affected account. Its balance replaces the pending delta once the account's `updated_at` is newer than the send time (Sure recalculates balances asynchronously).
+3. The engine pulls the affected account. Its balance replaces the pending delta (`pendingDeltas()`) once the account's `updated_at` is at or after `appliedAt`. Sure recalculates balances asynchronously, after it created the transaction, and renders both times on its own clock in whole seconds, so `>=` also clears a recalculation in the same second. The device clock is never compared with the server's. Only creates and transfers carry a delta: a `DELETE` answer has no server time.
 
 ### Local schema (Dexie)
 
@@ -131,7 +131,7 @@ Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to t
 - **Update payload:** `PATCH` ignores `null` fields, blank `category_id` / `merchant_id` and `currency`, so an update cannot clear a category or a merchant. Notes clear with `""`.
 - **Unknown account on create:** Sure answers `500`, not `404`: `create` rescues the `RecordNotFound` itself before the API's `rescue_from` can turn it into a `404`. Push retries it like any `5xx`.
 - **Amounts in responses:** use `amount_decimal` (exact, locale-independent, positive = outflow). `amount` is a formatted display string; do not parse it. Responses also contain `amount_cents` and `signed_amount_cents`, but **they are missing from the OpenAPI schema**, so they are not in the generated types; do not depend on them.
-- **Balances are recalculated asynchronously** after a write. Expect a stale balance immediately after `201`.
+- **Balances are recalculated asynchronously** after a write. Expect a stale balance immediately after `201`. The recalculation ends with `account.update!(balance:, cash_balance:)`, which moves the account's `updated_at` only when the balance changes.
 - **Rate limit** for self-hosted instances is 10,000 requests per hour per key.
 - **Spec issues:** three path parameters (`family_exports/{id}`, `family_exports/{id}/download`, `syncs/{id}`) put `format` outside `schema`, which fails strict validation. orval needs `unsafeDisableValidation: true`.
 
@@ -276,7 +276,7 @@ Effort follows risk: most of the complexity is in the sync engine, so most of th
    - `401` → the queue pauses, no retry loop;
    - `500` then `201` → backoff works;
    - offline enqueue → `online` → push;
-   - pending balance delta clears only after a newer account `updated_at`;
+   - pending balance delta clears only once the account `updated_at` reaches the transaction's `created_at`, including in the same second;
    - transfer with one leg sent and one failed → resumes correctly;
    - two concurrent sync triggers → one worker;
    - `vi.setSystemTime` at 00:30 Europe/Paris → correct local date.

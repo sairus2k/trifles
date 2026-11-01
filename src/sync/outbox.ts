@@ -1,11 +1,13 @@
 import {
   db,
+  type AccountRecord,
   type DeletePayload,
   type EntryPayload,
   type OutboxRecord,
   type TransferPayload,
   type UpdatePayload,
 } from "../db/schema";
+import { fromCents, toCents } from "../domain/money";
 
 // The outbox is the optimistic layer: every write lands here first and the UI reads it back.
 
@@ -77,6 +79,46 @@ export function transferLegs(
     { externalId: `${clientId}:out`, payload: leg(fromAccountId, "expense") },
     { externalId: `${clientId}:in`, payload: leg(toAccountId, "income") },
   ];
+}
+
+// Sure stores amounts with four fraction digits, so sums at this scale are exact for every currency.
+const DELTA_SCALE = 4;
+
+/**
+ * Per cached account, what the outbox will still change in its `balanceCents`, as a decimal string
+ * at scale 4: an expense lowers an asset and raises a liability. Creates and transfers count while
+ * queued or sending, and once sent until Sure recalculates the account in its background job, seen
+ * as `updatedAt` reaching `appliedAt` (both whole seconds on the server clock). A failed record adds
+ * nothing: a create was rejected, and of a failed transfer it is unknown which leg reached Sure.
+ * Updates and deletes add nothing either: a DELETE answer has no server time to compare with.
+ */
+export async function pendingDeltas(): Promise<Map<string, string>> {
+  const [records, cached] = await Promise.all([db.outbox.toArray(), db.accounts.toArray()]);
+  const accounts = new Map(cached.map((account) => [account.id, account]));
+  const sums = new Map<string, number>();
+  for (const record of records) {
+    if (record.status === "failed") continue;
+    const entries =
+      record.op === "create"
+        ? [record.payload]
+        : record.op === "transfer"
+          ? transferLegs(record.clientId, record.payload).map((leg) => leg.payload)
+          : [];
+    for (const { accountId, amount, nature } of entries) {
+      const account = accounts.get(accountId);
+      if (!account || isApplied(record, account)) continue;
+      const outflow = toCents(amount, DELTA_SCALE) * (nature === "expense" ? 1 : -1);
+      const delta = account.classification === "liability" ? outflow : -outflow;
+      sums.set(accountId, (sums.get(accountId) ?? 0) + delta);
+    }
+  }
+  return new Map(
+    [...sums].filter(([, sum]) => sum !== 0).map(([id, sum]) => [id, fromCents(sum, DELTA_SCALE)]),
+  );
+}
+
+function isApplied(record: OutboxRecord, account: AccountRecord): boolean {
+  return record.status === "done" && account.updatedAt >= (record.appliedAt ?? 0);
 }
 
 // Strict creation order: only the oldest unfinished record is a candidate, so a head that is backing off
