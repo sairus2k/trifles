@@ -1,11 +1,11 @@
 ---
 id: TASK-5
 title: 'Local database: Dexie schema and Solid live query bridge'
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T14:56:00Z'
+updated_date: '2026-11-01T14:59:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -25,10 +25,10 @@ The app is offline-first: the UI reads and writes only the local database, the n
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Tables and keys match README → Local schema (accounts, categories, merchants, transactions, suggestions, outbox, meta)
-- [ ] #2 `createLiveQuery()` updates a Solid signal on every change and unsubscribes on cleanup
-- [ ] #3 A query with a reactive parameter re-subscribes when the parameter changes
-- [ ] #4 Tests run against real IndexedDB in Vitest browser mode
+- [x] #1 Tables and keys match README → Local schema (accounts, categories, merchants, transactions, suggestions, outbox, meta)
+- [x] #2 `createLiveQuery()` updates a Solid signal on every change and unsubscribes on cleanup
+- [x] #3 A query with a reactive parameter re-subscribes when the parameter changes
+- [x] #4 Tests run against real IndexedDB in Vitest browser mode
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -52,3 +52,26 @@ Decisions (user): TASK-5 tests run in Vitest browser mode on real IndexedDB (AC 
 
 Out of scope: outbox indexes (TASK-7), API → record mapping (TASK-9), storage.persist() (TASK-15), meta → configureSure() (TASK-11).
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Browser mode: importOriginal() in vi.mock("dexie") returns a namespace without liveQuery (also cmp, DexieYProvider), so the test mock calls Dexie.liveQuery from the class, as Dexie's import wrapper does.
+Verification (2026-11-01): schema test reads stores and indexes back from Chromium's IndexedDB; 4 bridge tests (updates on put/delete, unsubscribe on dispose, re-subscribe on parameter change with 2 opened / 2 closed, Loading fallback then unsubscribe on unmount). Full suite 103 passed; typecheck, lint, format:check and build pass.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added the local database and the Dexie → Solid bridge.
+
+src/db/schema.ts: db ("sure-quick-entry") version 1 with the seven tables and keys from README → Local schema (transactions indexed on date and accountId) and typed records. Categories drop classification, which Sure removed and the API no longer returns; timestamps are epoch ms; outbox payload stays unknown for TASK-7.
+
+src/db/live.ts: createLiveQuery(query) and createLiveQuery(source, query) return createMemo(() => from(liveQuery(...))). Solid 2's from() closes the subscription when the memo re-runs and on disposal; the accessor is pending until the first result (<Loading>) and errors reach <Errored>. Reactive parameters go through source because Dexie runs the query outside Solid's tracking.
+
+Tests run in Vitest browser mode on real IndexedDB (AC #4 reworded with the user): the node project resolves solid-js to its non-reactive server build, and forcing the browser condition there breaks msw/node. The bridge test uses its own uniquely named database because browser test files run in parallel. README: categories row, Testing note and the bridge section rewritten.
+
+Checks: 103 tests, typecheck, lint, format and build pass.
+
+Follow-ups: decide at TASK-6 whether sync tests keep fake-indexeddb in Node or move to browser mode; outbox indexes for queue order (TASK-7); test isolation once several browser test files import the shared db.
+<!-- SECTION:FINAL_SUMMARY:END -->
