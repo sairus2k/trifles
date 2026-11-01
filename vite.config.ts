@@ -24,6 +24,8 @@ export default defineConfig({
           name: "browser",
           include: ["src/**/*.browser.test.tsx", "test/**/*.browser.test.tsx"],
           setupFiles: ["./test/setup.ts"],
+          // Files share one origin and the app's db, which schema.browser.test.tsx deletes.
+          fileParallelism: false,
           browser: {
             enabled: true,
             provider: playwright(),
