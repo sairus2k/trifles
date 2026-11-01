@@ -67,6 +67,18 @@ export async function removePending(clientId: string): Promise<void> {
   });
 }
 
+/**
+ * Drops a failed record of any kind, for when the user gives up on it: a failed transfer may already
+ * have one leg in Sure, which stays there.
+ */
+export async function discardFailed(clientId: string): Promise<void> {
+  await db.transaction("rw", db.outbox, async () => {
+    const record = await db.outbox.get(clientId);
+    if (record?.status !== "failed") throw new OutboxLockedError(clientId);
+    await db.outbox.delete(clientId);
+  });
+}
+
 export function enqueueUpdate(transactionId: string, changes: UpdatePayload["changes"]) {
   return replaceQueued({ op: "update", payload: { transactionId, changes } });
 }

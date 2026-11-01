@@ -9,6 +9,7 @@ import {
 import {
   OutboxLockedError,
   claimNext,
+  discardFailed,
   editPending,
   enqueue,
   enqueueDelete,
@@ -235,6 +236,47 @@ describe("pending writes", () => {
 
   test("a missing record is locked", async () => {
     await expect(removePending("gone")).rejects.toThrow(OutboxLockedError);
+  });
+});
+
+describe("failed records", () => {
+  // A failed transfer may have one leg on the server and a failed update or delete has nothing left
+  // to retry on its own; the user dismisses them, accepting what Sure already has.
+  test.each([
+    ["transfer", { op: "transfer", payload: withdrawal }],
+    ["create", { op: "create", payload: coffee }],
+  ] as const)("a failed %s can be discarded", async (_, write) => {
+    const clientId = await enqueue(write);
+    await setState(clientId, { status: "failed", attempts: 1, lastError: "Invalid" });
+
+    await discardFailed(clientId);
+
+    expect(await db.outbox.count()).toBe(0);
+  });
+
+  test.each([
+    ["update", () => enqueueUpdate("tx-1", changes)],
+    ["delete", () => enqueueDelete("tx-1")],
+  ])("a failed %s can be discarded", async (_, write) => {
+    const clientId = await write();
+    await setState(clientId, { status: "failed", attempts: 1, lastError: "Not found" });
+
+    await discardFailed(clientId);
+
+    expect(await db.outbox.count()).toBe(0);
+  });
+
+  test.each([
+    ["pending", { status: "pending" }],
+    ["sending", { status: "sending" }],
+    ["done", { status: "done", attempts: 1 }],
+  ] as const)("a %s record is not discarded", async (_, state) => {
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    const before = await setState(clientId, state);
+
+    await expect(discardFailed(clientId)).rejects.toThrow(OutboxLockedError);
+    await expect(discardFailed("gone")).rejects.toThrow(OutboxLockedError);
+    expect(await db.outbox.toArray()).toEqual([before]);
   });
 });
 
