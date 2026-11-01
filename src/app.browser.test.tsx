@@ -37,7 +37,7 @@ test("a fresh install opens Settings, and saving a working key shows the app", a
   await mainHeading();
 });
 
-test("the main screen shows the entry form under the header", async () => {
+test("the main screen shows the entry form under the header and recent entries under it", async () => {
   await saveSettings({ baseUrl: FAKE_SURE_URL, apiKey: "key" });
   await db.accounts.clear();
   await db.accounts.put({
@@ -53,7 +53,9 @@ test("the main screen shows the entry form under the header", async () => {
 
   await mainHeading();
   expect(await screen.findByLabelText("Amount")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Add expense" })).toBeTruthy();
+  const submit = screen.getByRole("button", { name: "Add expense" });
+  const recent = await screen.findByRole("region", { name: "Recent transactions" });
+  expect(submit.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 test("Settings opens from the header and closes without saving", async () => {

@@ -1,6 +1,7 @@
 import { Loading, Show, createSignal } from "solid-js";
 import { createLiveQuery } from "./db/live";
 import { Entry } from "./features/entry/entry";
+import { Recent } from "./features/recent/recent";
 import { Settings } from "./features/settings/settings";
 import { readSyncConfig } from "./sync/settings";
 
@@ -45,6 +46,7 @@ export function App() {
               </button>
             </header>
             <Entry />
+            <Recent />
           </main>
         }
       >
