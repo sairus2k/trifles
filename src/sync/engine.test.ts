@@ -1,11 +1,18 @@
+import { http } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import { FAKE_SURE_URL, createFakeSure, type FakeSure } from "../../test/fake-sure";
+import {
+  FAKE_SURE_URL,
+  createFakeSure,
+  defaultSeed,
+  type FakeSure,
+  type FakeSureSeed,
+} from "../../test/fake-sure";
 import { configureSure } from "../api/http";
-import { db, type EntryPayload } from "../db/schema";
+import { db, type EntryPayload, type MetaRecord } from "../db/schema";
 import { startSync, type SyncEngine } from "./engine";
 import { enqueue } from "./outbox";
-import { readSyncConfig, saveSettings } from "./settings";
+import { readSyncConfig, saveSettings, switchInstance } from "./settings";
 
 // The engine runs in the browser main thread; here `window`, `document` and `navigator.onLine` are
 // stand-ins whose events the tests fire by hand. Real events are covered by the E2E tests.
@@ -368,5 +375,165 @@ describe("recovery", () => {
 
     await synced(clientId);
     expect(Date.now()).toBeLessThan(NOW + 60_000);
+  });
+});
+
+describe("switching instance", () => {
+  const OTHER_URL = "https://other.test";
+  const OTHER = { baseUrl: OTHER_URL, apiKey: "other-key" };
+  let other: FakeSure;
+
+  // Another instance: none of the ids of the default seed exist there.
+  function otherSeed(): Partial<FakeSureSeed> {
+    const seed = defaultSeed();
+    return {
+      accounts: seed.accounts.map((a) => ({ ...a, id: `other-${a.id}` })),
+      categories: seed.categories.map((c) => ({ ...c, id: `other-${c.id}` })),
+      merchants: seed.merchants.map((m) => ({ ...m, id: `other-${m.id}` })),
+    };
+  }
+
+  function useOther(seed: Partial<FakeSureSeed> = otherSeed()) {
+    other = createFakeSure(seed, OTHER_URL);
+    server.use(...other.handlers);
+  }
+
+  // Straight to IndexedDB, so this tab's Dexie does not hear of it, as with a liveQuery that has not
+  // yet seen another tab's write.
+  function writeAsAnotherTab(records: MetaRecord[]) {
+    return new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open(db.name);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const tx = open.result.transaction("meta", "readwrite");
+        for (const record of records) tx.objectStore("meta").put(record);
+        tx.oncomplete = () => {
+          open.result.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+  }
+
+  function countOn(fake: FakeSure, method: string, path: string) {
+    return fake.requests.filter((r) => r.method === method && r.path.startsWith(path)).length;
+  }
+
+  async function cachedAccountIds() {
+    return (await db.accounts.orderBy("id").toArray()).map((a) => a.id);
+  }
+
+  test("the next run pulls everything from the new instance and nothing from the old", async () => {
+    useOther();
+    start();
+    await started();
+    const oldRequests = sure.requests.length;
+
+    expect(await switchInstance(OTHER, 0)).toBeUndefined();
+
+    await vi.waitFor(() => expect(countOn(other, "GET", "/api/v1/transactions")).toBe(1));
+    await lockReleased();
+    expect(countOn(other, "GET", "/api/v1/categories")).toBe(1);
+    expect(countOn(other, "GET", "/api/v1/merchants")).toBe(1);
+    expect(await cachedAccountIds()).toEqual(other.accounts.map((a) => a.id).sort());
+    expect((await db.categories.toArray()).every((c) => c.id.startsWith("other-"))).toBe(true);
+    expect(sure.requests).toHaveLength(oldRequests);
+  });
+
+  test("discarded records are sent to neither instance", async () => {
+    useOther();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    sure.failNext(POST, { status: 429 });
+    const clientId = await add();
+    start();
+    await vi.waitFor(async () => expect(await record(clientId)).toMatchObject({ attempts: 1 }));
+    await lockReleased();
+
+    expect(await switchInstance(OTHER, 1)).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await lockReleased();
+
+    await vi.waitFor(() =>
+      expect(countOn(other, "GET", "/api/v1/transactions")).toBeGreaterThan(0),
+    );
+    await lockReleased();
+    expect(postedExternalIds()).toEqual([clientId]);
+    expect(countOn(other, "POST", "/api/v1/transactions")).toBe(0);
+  });
+
+  test("a run in flight finishes against the old instance before the cache is cleared", async () => {
+    useOther();
+    let reached = false;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    // Holds the start run's last request, then falls through to the old fake.
+    server.use(
+      http.get(
+        `${FAKE_SURE_URL}/api/v1/transactions`,
+        async () => {
+          reached = true;
+          await held;
+        },
+        { once: true },
+      ),
+    );
+    start();
+    await vi.waitFor(() => expect(reached).toBe(true));
+
+    let switched = false;
+    void switchInstance(OTHER, 0).then(() => (switched = true));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(switched).toBe(false);
+
+    online = false; // keeps the next run from refilling the cache before it is checked
+    release();
+    await vi.waitFor(() => expect(switched).toBe(true));
+    // The old run wrote its pull before the switch, which cleared it.
+    for (const table of [db.accounts, db.categories, db.merchants, db.transactions]) {
+      expect(await table.count()).toBe(0);
+    }
+
+    goOnline();
+    await vi.waitFor(() => expect(countOn(other, "GET", "/api/v1/transactions")).toBe(1));
+    await lockReleased();
+    expect(await cachedAccountIds()).toEqual(other.accounts.map((a) => a.id).sort());
+  });
+
+  test("a run behind another tab's switch uses the new URL and key before this tab hears of it", async () => {
+    useOther();
+    start();
+    await started();
+    const oldRequests = sure.requests.length;
+
+    await locks.request("outbox", async () => {
+      await writeAsAnotherTab([
+        { key: "baseUrl", value: OTHER.baseUrl },
+        { key: "apiKey", value: OTHER.apiKey },
+      ]);
+      goOnline(); // queues a run behind the switch
+    });
+
+    await vi.waitFor(() => expect(countOn(other, "GET", "/api/v1/transactions")).toBe(1));
+    await lockReleased();
+    expect(sure.requests).toHaveLength(oldRequests);
+    expect(countOn(other, "GET", "/api/v1/categories")).toBe(1);
+  });
+
+  test("records kept for the same Sure under another address go to that address", async () => {
+    useOther(defaultSeed()); // the same data, as an alias of the instance would have
+    online = false;
+    const clientId = await add();
+    start();
+    await saveSettings(OTHER);
+
+    goOnline();
+
+    await vi.waitFor(() =>
+      expect(other.transactions.filter((t) => t.external_id === clientId)).toHaveLength(1),
+    );
+    await lockReleased();
+    expect(countOn(other, "GET", "/api/v1/categories")).toBe(1);
+    expect(sure.requests).toEqual([]);
   });
 });

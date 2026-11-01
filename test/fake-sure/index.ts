@@ -120,7 +120,8 @@ function byName<T extends { name: string }>(items: T[]) {
   return items.toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
-export function createFakeSure(seed: Partial<FakeSureSeed> = {}) {
+/** `baseUrl` other than `FAKE_SURE_URL` stands for a second instance. */
+export function createFakeSure(seed: Partial<FakeSureSeed> = {}, baseUrl = FAKE_SURE_URL) {
   const state = structuredClone({ ...defaultSeed(), ...seed });
   const faults = new Map<FakeSureRoute, FakeSureFault[]>();
   const requests: FakeSureRequest[] = [];
@@ -280,7 +281,7 @@ export function createFakeSure(seed: Partial<FakeSureSeed> = {}) {
   const handlers: HttpHandler[] = Object.entries(resolvers).map(([route, resolve]) => {
     const [method, path] = route.split(" ") as ["GET" | "POST" | "PATCH" | "DELETE", string];
     const on = { GET: http.get, POST: http.post, PATCH: http.patch, DELETE: http.delete }[method];
-    return on(FAKE_SURE_URL + path, async ({ request, params }) => {
+    return on(baseUrl + path, async ({ request, params }) => {
       const url = new URL(request.url);
       const hasBody = method === "POST" || method === "PATCH";
       const body = hasBody ? await request.json() : undefined;

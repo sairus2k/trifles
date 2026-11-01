@@ -1,6 +1,6 @@
 import { Show, createSignal } from "solid-js";
 import type { SureSettings } from "../../api/http";
-import { saveSettings } from "../../sync/settings";
+import { sameInstance, saveSettings, switchInstance } from "../../sync/settings";
 import { type CheckResult, checkConnection } from "./check";
 
 interface SettingsProps {
@@ -11,9 +11,16 @@ interface SettingsProps {
   onSaved: () => void;
 }
 
+interface Unsent {
+  next: SureSettings;
+  count: number;
+}
+
 export function Settings(props: SettingsProps) {
-  const [checking, setChecking] = createSignal(false);
+  const [busy, setBusy] = createSignal<"checking" | "saving">();
   const [failure, setFailure] = createSignal<string>();
+  // Set while the user decides what happens to the entries the current instance has not received.
+  const [unsent, setUnsent] = createSignal<Unsent>();
 
   async function submit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault();
@@ -23,16 +30,44 @@ export function Settings(props: SettingsProps) {
       apiKey: String(form.get("apiKey")).trim(),
     };
     setFailure(undefined);
-    setChecking(true);
+    setBusy("checking");
     let result: CheckResult;
     try {
       result = await checkConnection(next);
     } finally {
-      setChecking(false);
+      setBusy(undefined);
     }
     if (!result.ok) return setFailure(describe(result, next.baseUrl));
 
+    // A new key for the same URL keeps everything; another URL may be another instance.
+    if (!props.settings || sameInstance(props.settings.baseUrl, next.baseUrl)) {
+      await saveSettings(next);
+      return saved();
+    }
+    await switchTo(next, 0);
+  }
+
+  // Waits for a sync run that is still talking to the old instance.
+  async function switchTo(next: SureSettings, allowedUnsent: number) {
+    setUnsent(undefined);
+    setBusy("saving");
+    let refused: { unsent: number } | undefined;
+    try {
+      refused = await switchInstance(next, allowedUnsent);
+    } finally {
+      setBusy(undefined);
+    }
+    if (refused) return setUnsent({ next, count: refused.unsent });
+    await saved();
+  }
+
+  async function keep(next: SureSettings) {
+    setUnsent(undefined);
     await saveSettings(next);
+    await saved();
+  }
+
+  async function saved() {
     // On iOS only persistent storage keeps an unsent outbox from eviction. The first save is the
     // first run, and it happens in a user gesture, which browsers that prompt for it require.
     if (!(await navigator.storage.persisted())) await navigator.storage.persist();
@@ -48,19 +83,28 @@ export function Settings(props: SettingsProps) {
           sent once you save a key that works.
         </p>
       </Show>
-      <form class="flex flex-col gap-4" onSubmit={submit}>
-        <label class="flex flex-col gap-1 font-medium">
-          Sure URL
-          <input
-            class="min-h-11 rounded-lg border border-line bg-surface-raised px-3 text-base font-normal"
-            name="baseUrl"
-            type="url"
-            required
-            autocomplete="url"
-            placeholder="https://sure.example.com"
-            defaultValue={props.settings?.baseUrl}
-          />
-        </label>
+      {/* The choice was made for the values checked; an edit has to be checked again. */}
+      <form class="flex flex-col gap-4" onSubmit={submit} onInput={() => setUnsent(undefined)}>
+        <div class="flex flex-col gap-1">
+          <label class="flex flex-col gap-1 font-medium">
+            Sure URL
+            <input
+              class="min-h-11 rounded-lg border border-line bg-surface-raised px-3 text-base font-normal"
+              name="baseUrl"
+              type="url"
+              required
+              autocomplete="url"
+              placeholder="https://sure.example.com"
+              aria-describedby={props.settings ? "base-url-hint" : undefined}
+              defaultValue={props.settings?.baseUrl}
+            />
+          </label>
+          <Show when={props.settings}>
+            <p id="base-url-hint" class="text-sm text-ink-muted">
+              Another address replaces the accounts and entries on this device with that Sure's.
+            </p>
+          </Show>
+        </div>
         <label class="flex flex-col gap-1 font-medium">
           API key
           <input
@@ -79,27 +123,73 @@ export function Settings(props: SettingsProps) {
             </p>
           )}
         </Show>
-        <button
-          type="submit"
-          class="min-h-11 rounded-lg bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-          disabled={checking()}
+        <Show
+          when={unsent()}
+          fallback={
+            <>
+              <button
+                type="submit"
+                class="min-h-11 rounded-lg bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
+                disabled={busy() !== undefined}
+              >
+                {busy() === "checking" ? "Checking…" : busy() === "saving" ? "Saving…" : "Save"}
+              </button>
+              <Show when={props.onClose}>
+                {(close) => (
+                  <button
+                    type="button"
+                    class="min-h-11 rounded-lg border border-line px-4 font-medium"
+                    onClick={() => close()()}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </Show>
+            </>
+          }
         >
-          {checking() ? "Checking…" : "Save"}
-        </button>
-        <Show when={props.onClose}>
-          {(close) => (
-            <button
-              type="button"
-              class="min-h-11 rounded-lg border border-line px-4 font-medium"
-              onClick={() => close()()}
-            >
-              Cancel
-            </button>
+          {(pending) => (
+            <div role="alert" class="flex flex-col gap-3 rounded-lg bg-warning-surface p-3">
+              <p class="text-warning">
+                {entries(pending().count)} not been sent to {host(props.settings!.baseUrl)}. If{" "}
+                {host(pending().next.baseUrl)} is the same Sure under another address, they are sent
+                there. Otherwise they are deleted.
+              </p>
+              <button
+                type="button"
+                class="min-h-11 rounded-lg bg-danger px-4 font-semibold text-on-accent"
+                onClick={() => void switchTo(pending().next, pending().count)}
+              >
+                Delete {pending().count === 1 ? "1 entry" : `${pending().count} entries`} and switch
+              </button>
+              <button
+                type="button"
+                class="min-h-11 rounded-lg border border-line px-4 font-medium"
+                onClick={() => void keep(pending().next)}
+              >
+                It's the same Sure, keep them
+              </button>
+              <button
+                type="button"
+                class="min-h-11 rounded-lg border border-line px-4 font-medium"
+                onClick={() => setUnsent(undefined)}
+              >
+                Cancel
+              </button>
+            </div>
           )}
         </Show>
       </form>
     </main>
   );
+}
+
+function host(baseUrl: string): string {
+  return URL.parse(baseUrl)?.host ?? baseUrl;
+}
+
+function entries(count: number): string {
+  return count === 1 ? "1 entry has" : `${count} entries have`;
 }
 
 function describe(result: CheckResult & { ok: false }, baseUrl: string): string {

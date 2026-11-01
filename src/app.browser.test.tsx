@@ -130,3 +130,50 @@ test("Balances in the header swaps the form for the balances and back, keeping a
   expect(screen.getByLabelText<HTMLInputElement>("Amount").value).toBe("12");
   expect(screen.getByLabelText("Amount")).toBeVisible();
 });
+
+test("switching to another Sure leaves nothing of the old one on screen", async () => {
+  worker.use(...createFakeSure({}, "https://other.test").handlers);
+  await saveSettings({ baseUrl: FAKE_SURE_URL, apiKey: "key" });
+  await Promise.all([db.accounts.clear(), db.transactions.clear(), db.outbox.clear()]);
+  await db.accounts.put({
+    id: "acc-cash",
+    name: "Cash",
+    currency: "EUR",
+    classification: "asset",
+    balanceCents: 120_000,
+    status: "active",
+    updatedAt: 0,
+  });
+  await db.transactions.put({
+    id: "tx-1",
+    accountId: "acc-cash",
+    date: "2026-10-31",
+    name: "Old coffee",
+    amountDecimal: "3.5",
+    currency: "EUR",
+    categoryId: null,
+    merchantId: null,
+    notes: null,
+    externalId: null,
+    createdAt: 0,
+    transferId: null,
+  });
+  render(() => <App />);
+  await mainHeading();
+  expect(await screen.findByText("Old coffee")).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await settingsHeading();
+  await userEvent.fill(screen.getByLabelText("Sure URL"), "https://other.test");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await mainHeading();
+  expect(
+    await screen.findByText("Your Sure accounts appear here after the first sync."),
+  ).toBeTruthy();
+  expect(screen.queryByText("Old coffee")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Balances" }));
+  const balances = await screen.findByRole("region", { name: "Balances" });
+  await vi.waitFor(() => expect(balances.textContent).toMatch(/after the first sync/));
+  expect(balances.textContent).not.toMatch("Cash");
+});

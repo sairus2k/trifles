@@ -19,6 +19,9 @@ type SyncedWrite =
   | { op: "update"; payload: UpdatePayload }
   | { op: "delete"; payload: DeletePayload };
 
+/** The Web Lock that sync runs and a switch of instance hold, so only one of them works at a time. */
+export const SYNC_LOCK = "outbox";
+
 const QUEUED = { status: "pending", attempts: 0, nextAttemptAt: 0, lastError: null } as const;
 
 // A write that may have reached Sure cannot change: a retry with the same external_id answers 200 with

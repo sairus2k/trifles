@@ -1,6 +1,6 @@
 import { liveQuery } from "dexie";
 import { SureError, configureSure } from "../api/http";
-import { headRetryAt, onOutboxWrite, requeueStuck, retryNow } from "./outbox";
+import { SYNC_LOCK, headRetryAt, onOutboxWrite, requeueStuck, retryNow } from "./outbox";
 import { pullRecent, pullReference } from "./pull";
 import { push } from "./push";
 import { pauseSync, readSyncConfig, type SyncConfig } from "./settings";
@@ -9,7 +9,6 @@ import { pauseSync, readSyncConfig, type SyncConfig } from "./settings";
 // when the connection or the app comes back, after every write and on a timer while the app is open.
 
 const TICK_MS = 60_000;
-const LOCK = "outbox";
 
 interface Run {
   /** Also pull recent transactions when nothing was sent, to pick up balances and other clients. */
@@ -24,7 +23,8 @@ export interface SyncEngine {
 
 export function startSync(): SyncEngine {
   let config: SyncConfig | undefined;
-  let referencePulled = false;
+  /** The instance URL reference data was last pulled from. */
+  let referencePulledFor: string | undefined;
   let queued: Run | undefined;
   let running = false;
   let stopped = false;
@@ -58,15 +58,20 @@ export function startSync(): SyncEngine {
   async function sync({ full, retry }: Run) {
     if (!config?.settings || config.pausedAt !== undefined || navigator.onLine === false) return;
     // Other tabs wait here, so only one of them processes the queue at a time.
-    await navigator.locks.request(LOCK, async () => {
+    await navigator.locks.request(SYNC_LOCK, async () => {
+      // Read again under the lock: a switch of instance commits under it, and a run that waited for
+      // it may start before this tab's liveQuery has seen the new settings.
+      const { settings, pausedAt } = await readSyncConfig();
+      if (!settings || pausedAt !== undefined) return;
+      configureSure(settings);
       await requeueStuck();
       if (retry) await retryNow();
       const { sent, paused } = await push();
       if (paused) return pauseSync();
       try {
-        if (!referencePulled) {
+        if (referencePulledFor !== settings.baseUrl) {
           await pullReference();
-          referencePulled = true;
+          referencePulledFor = settings.baseUrl;
         }
         if (sent > 0 || full) await pullRecent();
       } catch (error) {
@@ -88,7 +93,6 @@ export function startSync(): SyncEngine {
   const settings = liveQuery(readSyncConfig).subscribe({
     next(next) {
       config = next;
-      configureSure(next.settings);
       request({ full: true });
     },
     error: (error) => console.error("Reading the sync settings failed", error),
