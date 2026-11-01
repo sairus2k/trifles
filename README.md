@@ -87,10 +87,11 @@ Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pendi
 - **Sequential:** records are sent one at a time, in creation order. A head record that is backing off or still `sending` holds the rest of the queue; `failed` and `done` records do not.
 - **Idempotency:** every create sends `external_id` (the client UUID) and `source: "sure-quick-entry"`. Sure returns `200` with the existing transaction if that account already has one with that pair (the key is scoped to the account), so **retrying after any ambiguous failure is safe**.
 - **Error handling:**
-  - `200` / `201` → done.
-  - `422` → `failed`, shown in the UI with the server message; the queue continues.
-  - `401` → pause the queue and send the user to Settings.
-  - `5xx`, network error, timeout → retry with exponential backoff and jitter.
+  - `200` / `201` → done. A `DELETE` answered `404` is done too: a retry after a lost response finds the transaction already gone.
+  - `422` and any other returned `4xx` (for example `404`, which the spec does not declare) → `failed`, shown in the UI with the server message; the queue continues.
+  - `401`, `403` (a read-only key) or missing settings → pause the queue and send the user to Settings.
+  - `429`, `5xx`, network error, non-JSON answer, timeout (30 s) → retry with exponential backoff (2 s doubling per attempt, capped at 5 minutes) and equal jitter.
+  - A transfer resends both legs on every attempt; Sure answers `200` for the leg it already has.
 - **Editing pending records:** editing or deleting a record that has not been sent yet rewrites or removes the outbox entry instead of queuing a second operation. This is allowed only while the write certainly is not on the server: a `create` or `transfer` never attempted, or a `create` that failed with a definitive answer (`422`, `404`). Anything that may have reached Sure (`sending`, retrying after an attempt, a failed transfer with one leg possibly sent, `done`) is locked: a retry with the same `external_id` would answer `200` with the old values, and a changed account would create a second transaction. Once `done`, an edit goes out as an `update`.
 - **Editing synced transactions** enqueues `update` (full values; `PATCH` cannot change the account) or `delete`. A queued `update` or `delete` for the same transaction is overwritten instead of queuing another one, unless it is already `sending`.
 - **Pull:** accounts, categories and merchants on every online start; the latest 100 transactions after every successful push and on demand.
@@ -127,6 +128,8 @@ Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to t
 
 - **Create payload:** send a positive `amount` and `nature: "expense" | "income"`. Sure stores expenses as positive and income as negative.
 - **Currency:** always send the account's `currency`. If omitted, Sure falls back to the family currency, which is wrong for foreign-currency accounts.
+- **Update payload:** `PATCH` ignores `null` fields, blank `category_id` / `merchant_id` and `currency`, so an update cannot clear a category or a merchant. Notes clear with `""`.
+- **Unknown account on create:** Sure answers `500`, not `404`: `create` rescues the `RecordNotFound` itself before the API's `rescue_from` can turn it into a `404`. Push retries it like any `5xx`.
 - **Amounts in responses:** use `amount_decimal` (exact, locale-independent, positive = outflow). `amount` is a formatted display string; do not parse it. Responses also contain `amount_cents` and `signed_amount_cents`, but **they are missing from the OpenAPI schema**, so they are not in the generated types; do not depend on them.
 - **Balances are recalculated asynchronously** after a write. Expect a stale balance immediately after `201`.
 - **Rate limit** for self-hosted instances is 10,000 requests per hour per key.
