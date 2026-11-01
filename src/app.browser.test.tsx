@@ -37,6 +37,25 @@ test("a fresh install opens Settings, and saving a working key shows the app", a
   await mainHeading();
 });
 
+test("the main screen shows the entry form under the header", async () => {
+  await saveSettings({ baseUrl: FAKE_SURE_URL, apiKey: "key" });
+  await db.accounts.clear();
+  await db.accounts.put({
+    id: "acc-cash",
+    name: "Cash",
+    currency: "EUR",
+    classification: "asset",
+    balanceCents: 0,
+    status: "active",
+    updatedAt: 0,
+  });
+  render(() => <App />);
+
+  await mainHeading();
+  expect(await screen.findByLabelText("Amount")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Add expense" })).toBeTruthy();
+});
+
 test("Settings opens from the header and closes without saving", async () => {
   await saveSettings({ baseUrl: FAKE_SURE_URL, apiKey: "key" });
   render(() => <App />);
