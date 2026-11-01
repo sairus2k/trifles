@@ -247,7 +247,7 @@ Queries with reactive parameters (for example an account filter) must re-subscri
 - Signal writes are applied on a microtask; `batch` is gone. Call `flush()` when you need to read a value right after writing it (for example reset a field and focus it).
 - `createEffect` takes two functions: `createEffect(compute, apply)`.
 - `Suspense` → `<Loading>`, `ErrorBoundary` → `<Errored>`, `For` and `Index` are merged.
-- **AI coding assistants mostly know Solid 1** and will suggest `createResource`, `Suspense`, `batch` and single-argument `createEffect`. Run `npx solid-migration-assistant` in CI and point agents to [v2.solidjs.com](https://v2.solidjs.com/migration/from-solid-1).
+- **AI coding assistants mostly know Solid 1** and will suggest `createResource`, `Suspense`, `batch` and single-argument `createEffect`. `npm run typecheck` rejects them: the removed APIs are not exported or typed in Solid 2, so no separate migration analyzer is needed. Point agents to [v2.solidjs.com](https://v2.solidjs.com/migration/from-solid-1).
 
 ### Mobile details
 
