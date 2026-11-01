@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { msw } from "msw/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
-import { serviceWorker } from "./sw-plugin";
+import { serviceWorker } from "./sw-plugin.ts";
 
 export default defineConfig({
   plugins: [solid(), tailwindcss(), serviceWorker()],
