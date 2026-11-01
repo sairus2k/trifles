@@ -3,6 +3,8 @@
 // on strings and BigInt. The scale comes from the caller: Intl's currency digits disagree with Sure's
 // own currency table for dozens of currencies.
 
+import { amountScale } from "./currency";
+
 const DECIMAL = /^(-?)(\d+)(?:\.(\d+))?$/;
 
 /** Divides and rounds half away from zero, like Sure's `BigDecimal#round` for `balance_cents`. */
@@ -38,4 +40,19 @@ export function fromCents(cents: number, scale: number): string {
   const int = digits.slice(0, digits.length - scale);
   const sign = cents < 0 ? "-" : "";
   return scale === 0 ? sign + int : `${sign}${int}.${digits.slice(-scale)}`;
+}
+
+/**
+ * A signed display amount, rounded to the digits Sure uses for the currency. Display only: the float
+ * is never stored or sent.
+ */
+export function formatAmount(decimal: string, currency: string, locale?: string): string {
+  const digits = amountScale(currency);
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    signDisplay: "exceptZero",
+  }).format(Number(decimal));
 }

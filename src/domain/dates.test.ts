@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
-import { toLocalDate, todayLocal } from "./dates";
+import { dayLabel, toLocalDate, todayLocal } from "./dates";
 
 const originalTz = process.env.TZ;
 
@@ -38,5 +38,20 @@ describe("todayLocal", () => {
 describe("toLocalDate", () => {
   test("pads month and day", () => {
     expect(toLocalDate(new Date(2026, 0, 5, 12))).toBe("2026-01-05");
+  });
+});
+
+describe("dayLabel", () => {
+  test.each([
+    ["2026-11-01", "Today"],
+    ["2026-10-31", "Yesterday"],
+    ["2026-10-28", "Wed, Oct 28"],
+    ["2025-12-31", "Wed, Dec 31, 2025"],
+  ])("%s → %s", (date, expected) => {
+    expect(dayLabel(date, "2026-11-01", "en-US")).toBe(expected);
+  });
+
+  test("yesterday crosses a month and a year", () => {
+    expect(dayLabel("2025-12-31", "2026-01-01", "en-US")).toBe("Yesterday");
   });
 });

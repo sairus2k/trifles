@@ -188,9 +188,9 @@ src/
     engine.ts              triggers, Web Lock, lifecycle
   domain/
     calc.ts                amount expression parser (no eval)
-    money.ts               decimal string helpers
+    money.ts               decimal string helpers, display amounts
     currency.ts            fraction digits per currency for entered amounts
-    dates.ts               local YYYY-MM-DD dates
+    dates.ts               local YYYY-MM-DD dates, day headings
   features/
     entry/  recent/  balances/  settings/
   app.tsx

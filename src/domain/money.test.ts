@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { fromCents, toCents } from "./money";
+import { formatAmount, fromCents, toCents } from "./money";
 
 describe("toCents", () => {
   test.each([
@@ -69,5 +69,17 @@ describe("fromCents", () => {
     for (const cents of [0, 1, -1, 99, -100, 123456789]) {
       expect(toCents(fromCents(cents, 2), 2)).toBe(cents);
     }
+  });
+});
+
+describe("formatAmount", () => {
+  test.each([
+    ["-3.5", "EUR", "-€3.50"],
+    ["1200", "JPY", "+¥1,200"],
+    ["1.5", "KWD", "+KWD\u00a01.500"],
+    ["12.3456", "EUR", "+€12.35"],
+    ["0", "EUR", "€0.00"],
+  ])("%s %s → %s, with the digits Sure uses for the currency", (decimal, currency, expected) => {
+    expect(formatAmount(decimal, currency, "en-US")).toBe(expected);
   });
 });
