@@ -148,6 +148,7 @@ Pinned versions as of 2026-10-31. Solid 2 is a release candidate: **install ever
 | Component testing | `@solidjs/testing-library` | 1.0.0-rc.2 |
 | IndexedDB in Node | `fake-indexeddb` | 6.2.7 |
 | E2E | `@playwright/test` | 1.64.1 |
+| Lint / format | `oxlint`, `oxfmt` | 1.90.0, 0.75.0 (default settings) |
 
 ### Why these choices
 
@@ -285,6 +286,8 @@ npx playwright install chromium   # browser for component and E2E tests
 npm run gen:api      # orval: spec/sure-openapi.yaml → src/api/generated (not added yet)
 npm run dev          # Vite dev server
 npm run typecheck    # tsc (TypeScript 7)
+npm run lint         # oxlint
+npm run format       # oxfmt (format:check to verify only)
 npm test             # Vitest: Node and browser-mode projects
 npm run test:e2e     # Playwright against `vite preview`
 npm run build        # static build in dist/
