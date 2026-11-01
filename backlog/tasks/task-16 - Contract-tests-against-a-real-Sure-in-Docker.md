@@ -4,7 +4,7 @@ title: Contract tests against a real Sure in Docker
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T15:46:00Z'
+updated_date: '2026-11-01T16:47:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -33,3 +33,16 @@ The fake encodes assumptions about Sure behaviour that must hold on the real ins
 - [ ] #9 PATCH and DELETE of an unknown transaction answer `404 not_found`
 - [ ] #10 A read-only API key answers `403` to POST /transactions
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: @claude
+created: 2026-11-01T16:47:00Z
+
+---
+
+From TASK-11: Settings tells a read-only key apart with `DELETE /api/v1/transactions/<random UUID>`, relying on TransactionsController running `ensure_write_scope` before `set_transaction`. Contract-test it on each Sure upgrade: a `read` key → 403 `insufficient_scope`, a `read_write` key → 404 `not_found`, and no transaction is changed.
+
+---
+<!-- COMMENTS:END -->
