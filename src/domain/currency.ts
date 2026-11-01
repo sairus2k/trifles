@@ -46,3 +46,52 @@ const SCALES = new Map<string, number>([
 export function amountScale(currency: string): number {
   return SCALES.get(currency) ?? DEFAULT_SCALE;
 }
+
+// `minor_unit_conversion` from the same file: `balance_cents` is the balance times this, rounded.
+// BigInt because ETH's 10^18 is past Number's exact range.
+
+const DEFAULT_CONVERSION = 100n;
+
+const CONVERSIONS = new Map<string, bigint>([
+  ...[
+    "BIF",
+    "BYR",
+    "CLP",
+    "DJF",
+    "GBX",
+    "GNF",
+    "HUF",
+    "ISK",
+    "JPY",
+    "KMF",
+    "KRW",
+    "PYG",
+    "RWF",
+    "UGX",
+    "VND",
+    "VUV",
+    "XAF",
+    "XAG",
+    "XAU",
+    "XBA",
+    "XBB",
+    "XBC",
+    "XBD",
+    "XDR",
+    "XOF",
+    "XPD",
+    "XPF",
+    "XPT",
+    "XTS",
+  ].map((code) => [code, 1n] as const),
+  ...["MGA", "MRU"].map((code) => [code, 5n] as const),
+  ...["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"].map((code) => [code, 1000n] as const),
+  ["CLF", 10_000n],
+  ...["BTC", "DOGE"].map((code) => [code, 10n ** 8n] as const),
+  ["ETH", 10n ** 18n],
+]);
+
+/** `minorUnitConversion("MGA")` → `5n`; a currency Sure does not list takes 100. */
+export function minorUnitConversion(currency: string): bigint {
+  return CONVERSIONS.get(currency) ?? DEFAULT_CONVERSION;
+}

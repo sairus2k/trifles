@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatAmount, fromCents, toCents } from "./money";
+import { addDecimals, formatAmount, fromCents, fromMinorUnits, toCents } from "./money";
 
 describe("toCents", () => {
   test.each([
@@ -69,6 +69,43 @@ describe("fromCents", () => {
     for (const cents of [0, 1, -1, 99, -100, 123456789]) {
       expect(toCents(fromCents(cents, 2), 2)).toBe(cents);
     }
+  });
+});
+
+describe("fromMinorUnits", () => {
+  test.each([
+    [123456, 100n, "1234.56"],
+    [-5, 100n, "-0.05"],
+    [0, 100n, "0.00"],
+    [1200, 1n, "1200"],
+    [-1500, 1000n, "-1.500"],
+    [7, 5n, "1.4"],
+    [10, 5n, "2.0"],
+    [-3, 5n, "-0.6"],
+    [150_000_000, 10n ** 8n, "1.50000000"],
+    [1.5e18, 10n ** 18n, "1.500000000000000000"],
+  ])("%d at 1/%i is %s", (cents, conversion, decimal) => {
+    expect(fromMinorUnits(cents, conversion)).toBe(decimal);
+  });
+});
+
+describe("addDecimals", () => {
+  test.each([
+    ["1200.00", "-3.5000", "1196.5000"],
+    ["1.4", "0.1000", "1.5000"],
+    ["-0.05", "0.0500", "0.0000"],
+    ["0.10", "-0.2500", "-0.1500"],
+    ["1.50000000", "-0.0001", "1.49990000"],
+    ["12", "-0.5", "11.5"],
+  ])("%s + %s = %s", (a, b, sum) => {
+    expect(addDecimals(a, b)).toBe(sum);
+  });
+
+  test.each([
+    ["1,5", "1"],
+    ["1", ""],
+  ])("rejects %j + %j", (a, b) => {
+    expect(() => addDecimals(a, b)).toThrow(RangeError);
   });
 });
 

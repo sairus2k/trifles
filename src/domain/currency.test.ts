@@ -1,5 +1,20 @@
 import { expect, test } from "vitest";
-import { amountScale } from "./currency";
+import { amountScale, minorUnitConversion } from "./currency";
+
+test.each([
+  ["USD", 100n],
+  ["USDC", 100n],
+  ["JPY", 1n],
+  ["KWD", 1000n],
+  ["CLF", 10_000n],
+  // Not a power of 10: one minor unit is a fifth of the major one.
+  ["MGA", 5n],
+  ["BTC", 100_000_000n],
+  ["ETH", 1_000_000_000_000_000_000n],
+  ["XYZ", 100n],
+])("%s balances are in units of 1/%i", (currency, conversion) => {
+  expect(minorUnitConversion(currency)).toBe(conversion);
+});
 
 test.each([
   ["USD", 2],
