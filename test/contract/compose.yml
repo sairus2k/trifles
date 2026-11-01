@@ -1,0 +1,68 @@
+# A throwaway Sure for the contract suite, started by global-setup.ts with SURE_IMAGE_TAG taken
+# from spec/README.md. Based on Sure's compose.example.yml; no volumes, so `down -v` leaves nothing.
+
+x-db-env: &db_env
+  POSTGRES_USER: sure
+  POSTGRES_PASSWORD: sure
+  POSTGRES_DB: sure_production
+
+x-rails-env: &rails_env
+  <<: *db_env
+  SECRET_KEY_BASE: contract-tests-only-not-a-secret
+  SELF_HOSTED: "true"
+  RAILS_FORCE_SSL: "false"
+  RAILS_ASSUME_SSL: "false"
+  DB_HOST: db
+  DB_PORT: 5432
+  REDIS_URL: redis://redis:6379/1
+
+services:
+  web:
+    image: ghcr.io/we-promise/sure:${SURE_IMAGE_TAG:?set by test/contract/global-setup.ts}
+    ports:
+      - 127.0.0.1:${SURE_CONTRACT_PORT:-3999}:3000
+    environment:
+      <<: *rails_env
+    volumes:
+      - ./seed.rb:/contract/seed.rb:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/up"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+      # The entrypoint runs db:prepare before the server starts.
+      start_period: 180s
+      start_interval: 2s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Sidekiq recalculates balances and auto-matches transfers after every write.
+  worker:
+    image: ghcr.io/we-promise/sure:${SURE_IMAGE_TAG:?set by test/contract/global-setup.ts}
+    command: bundle exec sidekiq
+    environment:
+      <<: *rails_env
+    depends_on:
+      web:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    environment:
+      <<: *db_env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
