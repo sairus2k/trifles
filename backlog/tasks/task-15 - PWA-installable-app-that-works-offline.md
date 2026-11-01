@@ -4,7 +4,7 @@ title: 'PWA: installable app that works offline'
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T13:20:00Z'
+updated_date: '2026-11-01T16:50:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -49,3 +49,16 @@ Decision 2026-11-01 (prototypes of Serwist and a hand-written worker, both passe
 - Register in main.tsx only in PROD with `BASE_URL + 'sw.js'` and scope BASE_URL.
 - Useful E2E cases beyond the AC: offline deep link falls back to the shell; offline fetch to /api/... is a network error (not index.html); rebuild with a new build id → app updates after reloads. Not verified in the prototype: base path other than '/', real iOS Safari.
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: @claude
+created: 2026-11-01T16:50:00Z
+
+---
+
+From TASK-11: the CORS classification in `src/features/settings/check.ts` is not covered by any test that a real browser enforces. Node fetch reports every request as `cors` to msw, and a response synthesized by the msw service worker skips the CORS check, so removing `mode: "no-cors"` from the follow-up probe fails nothing. Add an E2E case: serve a second origin from Playwright that answers `/api/v1/accounts` without CORS headers (or fails the OPTIONS preflight), enter it in Settings and expect the CORS message ("… answered, but the browser blocked the request (CORS)"), not "Cannot reach …".
+
+---
+<!-- COMMENTS:END -->

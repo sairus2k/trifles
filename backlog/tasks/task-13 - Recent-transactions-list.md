@@ -4,7 +4,7 @@ title: Recent transactions list
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T15:46:00Z'
+updated_date: '2026-11-01T16:50:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -42,6 +42,15 @@ Findings from TASK-8 (push), for the list and the edit screen:
 - `PATCH /transactions/{id}` cannot clear a category or merchant (Sure drops null and blank ids), so removing one in the editor is silently lost. Disable clearing for synced transactions or say it will not apply. Notes do clear (push sends "").
 - A failed transfer (one leg may already be on the server) cannot be edited or removed: `editPending` and `removePending` throw `OutboxLockedError`. The failed row needs an action, for example dismiss with a warning that one leg may exist in Sure; that needs a new outbox function.
 - A record paused by `401` counts an attempt, so an entry that never reached Sure becomes locked for editing. Show why the row cannot be edited.
+
+---
+
+author: @claude
+created: 2026-11-01T16:50:00Z
+
+---
+
+From TASK-11: the main screen is the `fallback` of the `<Show>` in `src/app.tsx`; Settings replaces it on first run, from the header Settings button and when sync is paused (`pausedAt` in meta). The header there also holds the "Sync paused" button. Build this screen inside that fallback rather than replacing `App`, and keep the header. Browser component tests share the app `db` (files run one at a time) and need `afterEach(cleanup)`, see `src/app.browser.test.tsx`.
 
 ---
 <!-- COMMENTS:END -->
