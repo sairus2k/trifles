@@ -233,22 +233,18 @@ Each generated function resolves to `{ status, data, headers }`, typed as a unio
 
 ### Solid ↔ Dexie bridge
 
-```ts
-import { liveQuery } from "dexie";
-import { createSignal, onCleanup } from "solid-js";
+`src/db/live.ts` wraps a Dexie `liveQuery` in Solid 2's `from()` inside a `createMemo`:
 
-export function createLiveQuery<T>(query: () => T | Promise<T>) {
-  const [value, setValue] = createSignal<T | undefined>(undefined);
-  const sub = liveQuery(query).subscribe({
-    next: (v) => setValue(() => v),
-    error: (e) => console.error(e),
-  });
-  onCleanup(() => sub.unsubscribe());
-  return value;
-}
+```ts
+const accounts = createLiveQuery(() => db.accounts.toArray());
+const recent = createLiveQuery(accountId, (id) =>
+  db.transactions.where("accountId").equals(id).toArray(),
+);
 ```
 
-Queries with reactive parameters (for example an account filter) must re-subscribe when the parameter changes.
+- `from()` closes the Dexie subscription when the memo re-runs and when its owner is disposed, so there is no hand-written `onCleanup`.
+- Until the first result arrives the accessor is pending: render it inside `<Loading>`. A failed query surfaces in `<Errored>`.
+- Dexie runs the query outside Solid's tracking, so a signal read inside the query is **not** tracked. Pass reactive parameters (for example an account filter) as the first argument; when it changes, the old subscription closes and a new one opens.
 
 **Do not add a second optimistic layer** with Solid's `action` / `createOptimistic`: the outbox already is the optimistic layer.
 
