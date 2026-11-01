@@ -198,7 +198,8 @@ src/
   index.css                Tailwind entry: sources, theme tokens, safe-area utilities
   sw.ts                    service worker: precache the shell, offline navigation
 public/
-  manifest.webmanifest
+  manifest.webmanifest     start_url and scope "./", so they follow the path the app is served from
+  icon.svg, *.png          app icons; the PNGs are rendered from icon.svg
 test/
   fake-sure/               stateful MSW fake of the Sure API
 e2e/
@@ -272,6 +273,7 @@ const recent = createLiveQuery(accountId, (id) =>
 
 - Call `navigator.storage.persist()` on first run: Settings requests it when the settings are first saved, inside the tap on Save. On iOS, an app installed to the home screen is exempt from the 7-day storage eviction that applies to Safari tabs; an unsent outbox must not be lost.
 - The viewport covers the notch (`viewport-fit=cover`), so screens pad themselves with the `pt-safe`, `px-safe` and `pb-safe` utilities from `src/index.css`; without them the header sits under the status bar and the last button under the home indicator in standalone mode.
+- The status bar uses `apple-mobile-web-app-status-bar-style: default`: `black-translucent` always draws white text, which is unreadable on the light theme. `theme-color` comes in a light and a dark variant; meta tags cannot read CSS variables, so both repeat the `--color-surface` literals from `src/index.css`, and the manifest's `theme_color` / `background_color` repeat the light one.
 - Every button and input is at least 44 px tall (`min-h-11`), and inputs use 16 px text (`text-base`): iOS Safari zooms the page in when it focuses a field with smaller text.
 - The amount field uses `inputmode="decimal"` plus an on-screen operator row (`+ − × ÷`), because the decimal keyboard has no operators.
 - Dates are stored as local `YYYY-MM-DD`, never as ISO timestamps; otherwise an entry made at 00:30 lands on the previous day.
