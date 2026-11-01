@@ -202,3 +202,82 @@ describe("pullRecent", () => {
     });
   });
 });
+
+describe("suggestions", () => {
+  async function used(
+    merchantId: string | undefined,
+    categoryId: string | undefined,
+    date: string,
+  ) {
+    await serverTransaction({ merchant_id: merchantId, category_id: categoryId, date });
+    vi.setSystemTime(Date.now() + 60_000);
+  }
+
+  test("map each merchant to its most used category, with its count and last use", async () => {
+    await used("mer-lidl", "cat-groceries", "2026-10-28");
+    await used("mer-lidl", "cat-restaurants", "2026-10-29");
+    await used("mer-lidl", "cat-groceries", "2026-10-30");
+    await used("mer-starbucks", "cat-restaurants", "2026-10-31");
+    // Neither can pre-fill anything.
+    await used("mer-starbucks", undefined, "2026-11-01");
+    await used(undefined, "cat-salary", "2026-11-01");
+
+    await pullRecent();
+
+    expect(await db.suggestions.orderBy("merchantName").toArray()).toEqual([
+      {
+        merchantName: "Lidl",
+        merchantId: "mer-lidl",
+        categoryId: "cat-groceries",
+        count: 3,
+        lastUsedAt: NOW + 2 * 60_000,
+      },
+      {
+        merchantName: "Starbucks",
+        merchantId: "mer-starbucks",
+        categoryId: "cat-restaurants",
+        count: 1,
+        lastUsedAt: NOW + 3 * 60_000,
+      },
+    ]);
+  });
+
+  test("a tie goes to the category used on the latest date", async () => {
+    await used("mer-lidl", "cat-restaurants", "2026-10-31");
+    await used("mer-lidl", "cat-groceries", "2026-10-30");
+
+    await pullRecent();
+
+    expect(await db.suggestions.get("Lidl")).toMatchObject({
+      categoryId: "cat-restaurants",
+      count: 2,
+    });
+  });
+
+  test("the window replaces a merchant's stats; merchants outside it are kept", async () => {
+    await db.suggestions.bulkPut([
+      {
+        merchantName: "Lidl",
+        merchantId: "mer-lidl",
+        categoryId: "cat-salary",
+        count: 50,
+        lastUsedAt: 0,
+      },
+      {
+        merchantName: "Old bakery",
+        merchantId: "mer-old",
+        categoryId: "cat-groceries",
+        count: 4,
+        lastUsedAt: 0,
+      },
+    ]);
+    await used("mer-lidl", "cat-groceries", "2026-10-31");
+
+    await pullRecent();
+
+    expect(await db.suggestions.orderBy("merchantName").toArray()).toEqual([
+      expect.objectContaining({ merchantName: "Lidl", categoryId: "cat-groceries", count: 1 }),
+      expect.objectContaining({ merchantName: "Old bakery", count: 4 }),
+    ]);
+  });
+});

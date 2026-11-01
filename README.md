@@ -74,7 +74,7 @@ Sure API (/api/v1, X-Api-Key)
 | `categories`   | `id`           | `name`, `color`, `icon` (Sure no longer has category classification)                                                              |
 | `merchants`    | `id`           | `name`                                                                                                                            |
 | `transactions` | `id`           | Server transactions with `externalId` (matches outbox records); index on `date` and `accountId`                                   |
-| `suggestions`  | `merchantName` | `merchantId`, `categoryId`, `count`, `lastUsedAt`                                                                                 |
+| `suggestions`  | `merchantName` | `merchantId`, `categoryId` (most used), `count`, `lastUsedAt`; rebuilt from each recent pull, merchants outside it are kept       |
 | `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`, `appliedAt`; index on `createdAt` (queue order) |
 | `meta`         | `key`          | Instance URL, API key, last pull timestamps                                                                                       |
 

@@ -8,7 +8,12 @@ import {
   type Transaction,
 } from "../api/generated/sure";
 import { SureError } from "../api/http";
-import { db, type AccountRecord, type TransactionRecord } from "../db/schema";
+import {
+  db,
+  type AccountRecord,
+  type SuggestionRecord,
+  type TransactionRecord,
+} from "../db/schema";
 
 // Screens read only from the cache, so pull replaces it with what Sure returns. Requests come first
 // and the cache is written in one transaction after them, so a failed pull changes nothing.
@@ -39,7 +44,10 @@ export async function pullReference(): Promise<void> {
   });
 }
 
-/** Accounts, for fresh balances, and the latest 100 transactions. */
+/**
+ * Accounts, for fresh balances, and the latest 100 transactions, from which the merchant → category
+ * suggestions are rebuilt.
+ */
 export async function pullRecent(): Promise<void> {
   const accounts = await fetchAccounts();
   // Sure lists them newest first.
@@ -48,11 +56,13 @@ export async function pullRecent(): Promise<void> {
     "/api/v1/transactions",
   );
 
-  await db.transaction("rw", [db.accounts, db.transactions], async () => {
+  await db.transaction("rw", [db.accounts, db.transactions, db.suggestions], async () => {
     await db.accounts.clear();
     await db.accounts.bulkPut(accounts);
     await db.transactions.clear();
     await db.transactions.bulkPut(transactions.map(toTransaction));
+    // Upserted, not replaced: a merchant that left the window keeps its last stats for autocomplete.
+    await db.suggestions.bulkPut(toSuggestions(transactions));
   });
 }
 
@@ -94,6 +104,37 @@ function toTransaction(transaction: Transaction): TransactionRecord {
     notes: transaction.notes ?? null,
     externalId: transaction.external_id ?? null,
   };
+}
+
+// Only transactions with both a merchant and a category can pre-fill the form. `transactions` is
+// newest first, so the first category to reach the top count is the latest of any tie.
+function toSuggestions(transactions: Transaction[]): SuggestionRecord[] {
+  const byMerchant = new Map<string, { suggestion: SuggestionRecord; uses: Map<string, number> }>();
+  for (const { merchant, category, created_at } of transactions) {
+    if (!merchant || !category) continue;
+    const usedAt = Date.parse(created_at);
+    let stats = byMerchant.get(merchant.name);
+    if (!stats) {
+      stats = {
+        suggestion: {
+          merchantName: merchant.name,
+          merchantId: merchant.id,
+          categoryId: category.id,
+          count: 0,
+          lastUsedAt: usedAt,
+        },
+        uses: new Map(),
+      };
+      byMerchant.set(merchant.name, stats);
+    }
+    const { suggestion, uses } = stats;
+    const count = (uses.get(category.id) ?? 0) + 1;
+    uses.set(category.id, count);
+    if (count > uses.get(suggestion.categoryId)!) suggestion.categoryId = category.id;
+    suggestion.count++;
+    suggestion.lastUsedAt = Math.max(suggestion.lastUsedAt, usedAt);
+  }
+  return [...byMerchant.values()].map(({ suggestion }) => suggestion);
 }
 
 async function allPages<T>(
