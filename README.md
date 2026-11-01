@@ -196,7 +196,9 @@ src/
   app.tsx
   main.tsx
   index.css                Tailwind entry: sources, theme tokens, safe-area utilities
-  sw.ts                    service worker: precache the shell, offline navigation
+  sw.ts                    service worker: precache the shell, offline navigation (classic script)
+sw-plugin.ts               Vite plugin: builds src/sw.ts into sw.js with the precache list and version
+tsconfig.sw.json           typechecks src/sw.ts with the WebWorker lib
 public/
   manifest.webmanifest     start_url and scope "./", so they follow the path the app is served from
   icon.svg, *.png          app icons; the PNGs are rendered from icon.svg
@@ -365,7 +367,8 @@ Record the Sure commit in `spec/README.md`. Keep the spec byte for byte as upstr
 
 The build output is static files. Any host works: GitHub Pages, Cloudflare Pages, or a location on the same reverse proxy as Sure.
 
-- Set the web app manifest `scope` and `start_url` to the path the app is served from, so the service worker never intercepts Sure itself when both share a domain.
+- Serve the app from its own path when it shares a domain with Sure, and build with that path as the base (`vite build --base=/quick/`). The service worker is registered with the base as its scope, and the manifest's `scope` and `start_url` are `"./"`, relative to the manifest, so the worker never intercepts Sure itself.
+- The service worker serves the cached app shell first. A new build is picked up on the next visit and applies after a reload.
 - If Sure is behind Cloudflare Access, add a bypass policy for `/api/*` (the API key protects it), or the API calls will be redirected to the login page.
 
 ## Security

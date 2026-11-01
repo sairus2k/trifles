@@ -11,5 +11,7 @@
     "skipLibCheck": true,
     "types": ["vite/client", "node", "@vitest/browser-playwright"]
   },
-  "include": ["src", "test", "e2e", "*.ts"]
+  "include": ["src", "test", "e2e", "*.ts"],
+  // A worker script with its own globals: tsconfig.sw.json checks it.
+  "exclude": ["src/sw.ts"]
 }
