@@ -4,7 +4,7 @@ title: 'PWA: installable app that works offline'
 status: To Do
 assignee: []
 created_date: '2026-11-01T08:52:00Z'
-updated_date: '2026-11-01T18:30:00Z'
+updated_date: '2026-11-01T18:48:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -86,6 +86,15 @@ created: 2026-11-01T18:30:00Z
 ---
 
 From TASK-13: the offline E2E can check the pending row: the recent list (region "Recent transactions") marks an unsent entry "Pending" and drops the mark once it is synced and pulled. Add to the iPhone checklist: swipe left on a row uncovers Delete without scrolling the page (touch-action: pan-y), and the edit <dialog> opens over the form with the decimal keyboard working.
+
+---
+
+author: @claude
+created: 2026-11-01T18:48:00Z
+
+---
+
+From TASK-14: the offline E2E can check the balance delta too: the header button "Balances" opens regions "Assets" / "Liabilities"; an unsent entry shows "≈ <projected>" on its account row, and the mark goes once synced and pulled. The button label flips to "Entry" to go back.
 
 ---
 <!-- COMMENTS:END -->
