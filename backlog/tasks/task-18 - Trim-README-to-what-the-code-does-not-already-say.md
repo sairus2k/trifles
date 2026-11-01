@@ -4,7 +4,9 @@ title: Trim README to what the code does not already say
 status: To Do
 assignee: []
 created_date: '2026-11-01T15:32:00Z'
+updated_date: '2026-11-01T18:36:00Z'
 labels: []
+milestone: m-1
 dependencies: []
 documentation:
   - README.md
