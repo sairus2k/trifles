@@ -2,9 +2,11 @@ import {
   deleteApiV1TransactionsId,
   getApiV1AccountsId,
   patchApiV1TransactionsId,
+  postApiV1RecurringTransactions,
   postApiV1Transactions,
   type ErrorResponse,
   type PatchApiV1TransactionsIdBody,
+  type PostApiV1RecurringTransactionsBody,
   type PostApiV1TransactionsBody,
 } from "../api/generated/sure";
 import { SureError } from "../api/http";
@@ -18,6 +20,8 @@ const BACKOFF_BASE_MS = 2_000;
 const BACKOFF_MAX_MS = 5 * 60_000;
 
 const ACCOUNT_GONE = "The account is no longer in Sure or no longer shared with you.";
+const ACCOUNT_READ_ONLY =
+  "This account is read-only for you in Sure. Ask its owner for full control, or move the entry to another account.";
 
 export interface PushResult {
   /** Records that reached `done` in this run. */
@@ -120,8 +124,9 @@ async function create(externalId: string, entry: EntryPayload): Promise<Reply> {
   try {
     reply = await postApiV1Transactions(createBody(externalId, entry), timeout());
   } catch (error) {
-    if (error instanceof SureError && error.status === 500 && (await isGone(entry.accountId))) {
-      return { status: 404, data: { error: "not_found", message: ACCOUNT_GONE } };
+    if (error instanceof SureError && error.status === 500) {
+      const reason = await refusal(entry);
+      if (reason) return { status: 404, data: { error: "not_found", message: reason } };
     }
     throw error;
   }
@@ -131,16 +136,39 @@ async function create(externalId: string, entry: EntryPayload): Promise<Reply> {
 
 // Sure answers a create for an account the key cannot write with the same 500 as any other failure:
 // `create` rescues the RecordNotFound itself. Retrying would hold the queue for good, so a 500 asks
-// whether the account is still there. A failed lookup leaves the 500 to be retried: even a 401 must
-// not pause the record, since a pause keeps a create editable and the 500 may follow a saved entry.
-async function isGone(accountId: string): Promise<boolean> {
+// whether the account is still there and, if it is, whether the key's user may write to it: Sure
+// lists and finds every account shared with the user, but writes only to an owned one or a
+// `full_control` share, and no answer carries the permission. Returns why Sure refused the create,
+// or nothing to retry it. A failed request leaves the 500 to be retried: even a 401 must not pause
+// the record, since a pause keeps a create editable and the 500 may follow a saved entry.
+async function refusal({ accountId, currency }: EntryPayload): Promise<string | undefined> {
   try {
-    const reply = await getApiV1AccountsId(accountId, { include_disabled: true }, timeout());
-    return reply.status === 404;
+    const account = await getApiV1AccountsId(accountId, { include_disabled: true }, timeout());
+    if (account.status === 404) return ACCOUNT_GONE;
+    const probe = await postApiV1RecurringTransactions(writeProbe(accountId, currency), timeout());
+    return probe.status === 404 ? ACCOUNT_READ_ONLY : undefined;
   } catch (error) {
-    if (error instanceof SureError) return false;
+    if (error instanceof SureError) return undefined;
     throw error;
   }
+}
+
+// A recurring transaction create resolves its account with the same `writable_by` scope as a
+// transaction create, before it checks anything else: 404 without write access, and with it 422
+// for the blank dates, which fail it before it saves. The day of 0 fails the model validation too,
+// should a later Sure stop checking the dates. The contract suite pins both answers.
+function writeProbe(accountId: string, currency: string): PostApiV1RecurringTransactionsBody {
+  return {
+    recurring_transaction: {
+      account_id: accountId,
+      name: SOURCE,
+      amount: 0,
+      currency,
+      expected_day_of_month: 0,
+      last_occurrence_date: "",
+      next_expected_date: "",
+    },
+  };
 }
 
 function createBody(externalId: string, entry: EntryPayload): PostApiV1TransactionsBody {

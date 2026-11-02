@@ -10,7 +10,10 @@ import { push } from "./push";
 const NOW = new Date("2026-11-01T10:00:00Z").getTime();
 const POST = "POST /api/v1/transactions";
 const ACCOUNT = "GET /api/v1/accounts/:id";
+const PROBE = "POST /api/v1/recurring_transactions";
 const ACCOUNT_GONE = "The account is no longer in Sure or no longer shared with you.";
+const ACCOUNT_READ_ONLY =
+  "This account is read-only for you in Sure. Ask its owner for full control, or move the entry to another account.";
 const TRANSACTIONS = `${FAKE_SURE_URL}/api/v1/transactions`;
 
 const server = setupServer();
@@ -48,12 +51,23 @@ function record(clientId: string) {
 
 function postedExternalIds() {
   return sure.requests
-    .filter((r) => r.method === "POST")
+    .filter((r) => r.method === "POST" && r.path === "/api/v1/transactions")
     .map((r) => (r.body as { transaction: { external_id: string } }).transaction.external_id);
 }
 
 function lookedUp() {
   return sure.requests.filter((r) => r.method === "GET").map((r) => r.path);
+}
+
+/** Account ids of the write probes push sent. */
+function probed() {
+  return sure.requests
+    .filter((r) => r.path === "/api/v1/recurring_transactions")
+    .map(
+      (r) =>
+        (r.body as { recurring_transaction: { account_id: string } }).recurring_transaction
+          .account_id,
+    );
 }
 
 // Deleted in Sure, or no longer shared with the key's user: either way the fake no longer has it.
@@ -403,6 +417,7 @@ describe("account Sure no longer has", () => {
     });
     expect(await record(next)).toMatchObject({ status: "done" });
     expect(lookedUp()).toEqual(["/api/v1/accounts/acc-cash?include_disabled=true"]);
+    expect(probed()).toEqual([]);
   });
 
   test("the failed create was not applied, so it can be moved to another account", async () => {
@@ -460,6 +475,7 @@ describe("account Sure no longer has", () => {
     await push();
 
     expect(lookedUp()).toEqual([]);
+    expect(probed()).toEqual([]);
     expect(await record(clientId)).toMatchObject({ status: "pending", attempts: 1 });
   });
 
@@ -471,6 +487,109 @@ describe("account Sure no longer has", () => {
   ] as const)("a lookup that fails with %s retries the record for the 500", async (_, fault) => {
     removeAccount("acc-cash");
     sure.failNext(ACCOUNT, fault);
+    const clientId = await enqueue({ op: "create", payload: coffee });
+
+    expect(await push()).toEqual({ sent: 0, paused: false });
+
+    const retried = (await record(clientId))!;
+    expect(retried).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      lastError: "POST /api/v1/transactions failed with status 500",
+    });
+    expect(isEditable(retried)).toBe(false);
+  });
+});
+
+// Shared read_only or read_write: listed and found, but Sure refuses every create with a 500.
+describe("account shared without full control", () => {
+  test("a create for it fails with a message the UI can show, and the queue continues", async () => {
+    sure.readOnlyAccountIds.push("acc-cash");
+    const refused = await enqueue({ op: "create", payload: coffee });
+    const next = await enqueue({ op: "create", payload: entry({ accountId: "acc-checking" }) });
+
+    expect(await push()).toEqual({ sent: 1, paused: false });
+
+    expect(await record(refused)).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      lastError: ACCOUNT_READ_ONLY,
+    });
+    expect(await record(next)).toMatchObject({ status: "done" });
+    expect(lookedUp()).toEqual(["/api/v1/accounts/acc-cash?include_disabled=true"]);
+    expect(sure.requests.find((r) => r.path === "/api/v1/recurring_transactions")?.body).toEqual({
+      recurring_transaction: expect.objectContaining({
+        account_id: "acc-cash",
+        currency: "EUR",
+        last_occurrence_date: "",
+        next_expected_date: "",
+      }),
+    });
+  });
+
+  test("the failed create was not applied, so it can be moved to another account", async () => {
+    sure.readOnlyAccountIds.push("acc-cash");
+    const clientId = await enqueue({ op: "create", payload: coffee });
+    await push();
+
+    expect(isEditable((await record(clientId))!)).toBe(true);
+    await editPending(clientId, { op: "create", payload: entry({ accountId: "acc-checking" }) });
+    expect(await push()).toEqual({ sent: 1, paused: false });
+    expect(sure.transactions.map((t) => t.account.id)).toEqual(["acc-checking"]);
+  });
+
+  test("a transfer to it fails after the :out leg, which stays sent once", async () => {
+    sure.readOnlyAccountIds.push("acc-cash");
+    const clientId = await enqueue({ op: "transfer", payload: withdrawal });
+    const next = await enqueue({ op: "create", payload: entry({ accountId: "acc-checking" }) });
+
+    expect(await push()).toEqual({ sent: 1, paused: false });
+
+    expect(await record(clientId)).toMatchObject({
+      status: "failed",
+      lastError: ACCOUNT_READ_ONLY,
+    });
+    expect(sure.transactions.map((t) => t.external_id)).toEqual([`${clientId}:out`, next]);
+  });
+
+  test("a transfer from it fails without sending the :in leg", async () => {
+    sure.readOnlyAccountIds.push("acc-checking");
+    const clientId = await enqueue({ op: "transfer", payload: withdrawal });
+
+    await push();
+
+    expect(await record(clientId)).toMatchObject({
+      status: "failed",
+      lastError: ACCOUNT_READ_ONLY,
+    });
+    expect(postedExternalIds()).toEqual([`${clientId}:out`]);
+    expect(sure.transactions).toHaveLength(0);
+  });
+
+  test("a 500 for a writable account is retried after the probe answers 422", async () => {
+    sure.failNext(POST, { status: 500 });
+    const clientId = await enqueue({ op: "create", payload: coffee });
+
+    await push();
+
+    expect(probed()).toEqual(["acc-cash"]);
+    const retried = (await record(clientId))!;
+    expect(retried).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      lastError: "POST /api/v1/transactions failed with status 500",
+    });
+    expect(retried.nextAttemptAt).toBeGreaterThan(NOW);
+    expect(isEditable(retried)).toBe(false);
+  });
+
+  test.each([
+    ["500", { status: 500 }],
+    ["401", { status: 401 }],
+    ["a network error", "drop"],
+  ] as const)("a probe that fails with %s retries the record for the 500", async (_, fault) => {
+    sure.readOnlyAccountIds.push("acc-cash");
+    sure.failNext(PROBE, fault);
     const clientId = await enqueue({ op: "create", payload: coffee });
 
     expect(await push()).toEqual({ sent: 0, paused: false });
