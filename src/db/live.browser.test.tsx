@@ -1,39 +1,8 @@
 import { render, screen } from "@solidjs/testing-library";
-import Dexie, { type EntityTable, type Observer } from "dexie";
+import Dexie, { type EntityTable } from "dexie";
 import { type Accessor, Loading, createEffect, createRoot, createSignal } from "solid-js";
 import { afterAll, beforeEach, expect, test, vi } from "vitest";
 import { createLiveQuery } from "./live";
-
-// Counts Dexie subscriptions so the tests can prove that cleanup and re-subscription really close
-// the previous one, not only stop updating the UI.
-const subscriptions = vi.hoisted(() => ({ opened: 0, closed: 0 }));
-
-vi.mock("dexie", async (importOriginal) => {
-  const dexie = await importOriginal<typeof import("dexie")>();
-  return {
-    ...dexie,
-    liveQuery: <T,>(querier: () => T | Promise<T>) => {
-      // In browser mode importOriginal() returns Dexie's namespace without the liveQuery export;
-      // Dexie's own import wrapper reads it from the class, so do the same.
-      const observable = dexie.Dexie.liveQuery(querier);
-      return {
-        subscribe(observer: Observer<T>) {
-          subscriptions.opened++;
-          const subscription = observable.subscribe(observer);
-          return {
-            get closed() {
-              return subscription.closed;
-            },
-            unsubscribe() {
-              subscriptions.closed++;
-              subscription.unsubscribe();
-            },
-          };
-        },
-      };
-    },
-  };
-});
 
 interface Item {
   id: number;
@@ -52,8 +21,7 @@ beforeEach(async () => {
     { id: 1, group: "a" },
     { id: 2, group: "b" },
   ]);
-  subscriptions.opened = 0;
-  subscriptions.closed = 0;
+  runs.length = 0;
 });
 
 afterAll(() => db.delete());
@@ -69,7 +37,25 @@ function record<T>(create: () => Accessor<T>) {
   return { values, dispose };
 }
 
-const idsIn = (group: string) => db.items.where("group").equals(group).primaryKeys();
+// Every run of the query is recorded: a subscription that was not closed runs again on a write.
+// vi.mock("dexie") could count subscriptions directly, but under load @vitest/browser-playwright
+// silently skips module mocks (vitest-dev/vitest#11780).
+const runs: string[] = [];
+const idsIn = (group: string) => {
+  runs.push(group);
+  return db.items.where("group").equals(group).primaryKeys();
+};
+
+// Dexie notifies subscriptions in the order they started listening, and each one runs its query
+// as soon as it is notified. The watcher subscribes last, so once it has seen the write, any
+// subscription left open has already run again.
+async function writeAndSettle(item: Item) {
+  const watcher = record(() => createLiveQuery(() => db.items.count()));
+  await vi.waitFor(() => expect(watcher.values).toHaveLength(1));
+  await db.items.put(item);
+  await vi.waitFor(() => expect(watcher.values).toHaveLength(2));
+  watcher.dispose();
+}
 
 test("emits the current result, then a new one on every change", async () => {
   const { values, dispose } = record(() => createLiveQuery(() => idsIn("a")));
@@ -87,10 +73,11 @@ test("emits the current result, then a new one on every change", async () => {
 test("unsubscribes from Dexie on dispose", async () => {
   const { values, dispose } = record(() => createLiveQuery(() => idsIn("a")));
   await vi.waitFor(() => expect(values).toEqual([[1]]));
-  expect(subscriptions).toEqual({ opened: 1, closed: 0 });
+  expect(runs).toEqual(["a"]);
 
   dispose();
-  expect(subscriptions).toEqual({ opened: 1, closed: 1 });
+  await writeAndSettle({ id: 3, group: "a" });
+  expect(runs).toEqual(["a"]);
 });
 
 test("re-subscribes when a reactive parameter changes", async () => {
@@ -100,13 +87,18 @@ test("re-subscribes when a reactive parameter changes", async () => {
 
   setGroup("b");
   await vi.waitFor(() => expect(values).toEqual([[1], [2]]));
-  expect(subscriptions).toEqual({ opened: 2, closed: 1 });
+  expect(runs).toEqual(["a", "b"]);
 
-  await db.items.put({ id: 3, group: "b" });
-  await vi.waitFor(() => expect(values).toEqual([[1], [2], [2, 3]]));
+  await writeAndSettle({ id: 3, group: "a" });
+  expect(runs).toEqual(["a", "b"]);
+
+  await db.items.put({ id: 4, group: "b" });
+  await vi.waitFor(() => expect(values).toEqual([[1], [2], [2, 4]]));
+  expect(runs).toEqual(["a", "b", "b"]);
 
   dispose();
-  expect(subscriptions).toEqual({ opened: 2, closed: 2 });
+  await writeAndSettle({ id: 5, group: "b" });
+  expect(runs).toEqual(["a", "b", "b"]);
 });
 
 test("shows the Loading fallback until the first result and unsubscribes on unmount", async () => {
@@ -124,6 +116,9 @@ test("shows the Loading fallback until the first result and unsubscribes on unmo
   await db.items.put({ id: 3, group: "a" });
   expect(await screen.findByText("ids: 1,3")).toBeTruthy();
 
+  expect(runs).toEqual(["a", "a"]);
+
   unmount();
-  expect(subscriptions).toEqual({ opened: 1, closed: 1 });
+  await writeAndSettle({ id: 4, group: "a" });
+  expect(runs).toEqual(["a", "a"]);
 });
