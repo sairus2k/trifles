@@ -1,11 +1,11 @@
 ---
 id: TASK-24
 title: Unblock the queue when a create targets an account shared read-only
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-11-01T20:18:00Z'
-updated_date: '2026-11-02T08:07:00Z'
+updated_date: '2026-11-02T08:29:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -25,9 +25,9 @@ Sure 131e786 answers `500` to `POST /api/v1/transactions` for an account the key
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A create (or transfer leg) for an account the key can read but not write stops holding the queue, and the UI shows why
-- [ ] #2 A transient 500 for a writable account is still retried
-- [ ] #3 Tested against the fake
+- [x] #1 A create (or transfer leg) for an account the key can read but not write stops holding the queue, and the UI shows why
+- [x] #2 A transient 500 for a writable account is still retried
+- [x] #3 Tested against the fake
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -77,4 +77,20 @@ Risks:
 
 <!-- SECTION:NOTES:BEGIN -->
 From TASK-19 seeding: Account.create_and_sync calls auto_share_with_family! when family.default_account_sharing is "shared" (the default): other members get read_write, guests read_only. Neither is writable_by, so in any multi-member family every account owned by someone else is listed in the entry form and a create to it answers 500 forever. Consider raising the priority.
+
+Contract suite (npm run test:contract, Sure 131e786 in Docker): 16/16 pass. The write probe answers 404 record_not_found for read_only and read_write shares, 422 validation_failed for an owned account and a full_control share, and creates no recurring transaction; a create on the full_control share answers 201.
+Deviation from the plan: src/sync/outbox.ts is unchanged. isEditable's comment already names a create rejected with 404, which is the reply push now returns for a read-only account.
+The README orval note now says ~1,900 generated lines (the Recurring Transactions tag added ~600).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+A create or transfer leg answered 500 for an account that GET /accounts/{id} still finds now triggers a write probe: POST /api/v1/recurring_transactions with blank dates and expected_day_of_month 0. Sure resolves its account with the same writable_by scope as a transaction create before any validation, so 404 means no write access and 422 write access, and nothing is saved. A 404 fails the record with "This account is read-only for you in Sure. Ask its owner for full control, or move the entry to another account.", which the recent list shows as the row error; the queue continues and the failed create stays editable. A 422, any other answer or a failed probe keeps the retry with backoff.
+
+Commits: 10be667 (generate the Recurring Transactions client), 0a6085b (fake: readOnlyAccountIds and the probe route), 95d4b5e (contract tests: accounts shared read_write, read_only and full_control), 31cb465 (push + tests + README).
+
+Verification: src/sync/push.test.ts "account shared without full control" (create fails with the message and the next record is sent; the failed create is editable and resent to another account; transfer to/from a read-only account; a 500 for a writable account is retried after a 422 probe; a probe failing with 500, 401 or a network error retries and keeps the record locked) — AC #1, #2, #3; the UI renders a failed create's lastError (recent.browser.test.tsx). Full npm test passes in the pre-commit hook; npm run test:contract passes against Sure 131e786.
+
+Risks / follow-ups: the probe depends on Sure checking the account before the dates (pinned by the contract suite, rerun on every Sure upgrade). A 500 for a writable account costs two extra requests per attempt. Read-only accounts stay in the entry form, so the user learns about them only after a push; hiding them would need one probe per account on every reference pull (no task created).
+<!-- SECTION:FINAL_SUMMARY:END -->
