@@ -262,7 +262,7 @@ describe("edit", () => {
     await renderRecent();
     const dialog = await open("Bakery");
 
-    expect(within(dialog).getByText("Cash · EUR")).toBeTruthy();
+    expect(await within(dialog).findByText("Cash · EUR")).toBeTruthy();
     expect(within(dialog).queryByRole("combobox", { name: "Account" })).toBeNull();
     await userEvent.fill(within(dialog).getByLabelText("Note"), "Bread and cake");
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -307,7 +307,7 @@ describe("edit", () => {
     await renderRecent();
     const dialog = await open("Coffee");
 
-    expect(within(dialog).getByText(SENDING_REASON)).toBeTruthy();
+    expect(await within(dialog).findByText(SENDING_REASON)).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Save" })).toBeNull();
     expect(within(dialog).queryByRole("button", { name: "Delete" })).toBeNull();
   });
@@ -379,7 +379,7 @@ describe("delete", () => {
     await renderRecent();
     const dialog = await open("Card → Cash");
 
-    expect(within(dialog).getByText(/Transfers are changed in Sure/)).toBeTruthy();
+    expect(await within(dialog).findByText(/Transfers are changed in Sure/)).toBeTruthy();
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await vi.waitFor(async () => expect(await outbox()).toHaveLength(2));
