@@ -39,6 +39,9 @@ export async function seeded() {
     checking: id(accounts.data.accounts, "Checking"),
     savings: id(accounts.data.accounts, "Savings"),
     latency: id(accounts.data.accounts, "Latency"),
+    sharedReadWrite: id(accounts.data.accounts, "Shared read_write"),
+    sharedReadOnly: id(accounts.data.accounts, "Shared read_only"),
+    sharedFullControl: id(accounts.data.accounts, "Shared full_control"),
     groceries: id(categories.data.categories, "Groceries"),
     cornerShop: id(merchants.data, "Corner Shop"),
   };

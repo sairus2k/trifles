@@ -63,3 +63,23 @@ Account.create_and_sync({
   accountable_attributes: {}
 })
 AccountShare.where(account_id: ENV.fetch("SURE_UNSHARED_ACCOUNT_ID")).delete_all
+
+# Accounts of the other member the key's user can read (TASK-24). create_and_sync shares each one
+# with the other members as read_write; Sure writes only to an owned account or a full_control
+# share, so two of the shares are changed. The key lists them, so the suite finds them by name.
+{
+  "Shared read_write" => nil,
+  "Shared read_only" => "read_only",
+  "Shared full_control" => "full_control"
+}.each do |name, permission|
+  account = Account.create_and_sync({
+    family: family,
+    owner: other,
+    name: name,
+    balance: 1000,
+    currency: "USD",
+    accountable_type: "Depository",
+    accountable_attributes: {}
+  })
+  AccountShare.where(account: account, user: user).update_all(permission: permission) if permission
+end

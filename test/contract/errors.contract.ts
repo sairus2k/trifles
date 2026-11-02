@@ -2,8 +2,10 @@ import { beforeAll, expect, test } from "vitest";
 import {
   deleteApiV1TransactionsId,
   getApiV1AccountsId,
+  getApiV1RecurringTransactions,
   getApiV1Transactions,
   patchApiV1TransactionsId,
+  postApiV1RecurringTransactions,
   postApiV1Transactions,
   type PatchApiV1TransactionsIdBodyTransaction,
 } from "../../src/api/generated/sure";
@@ -88,6 +90,68 @@ test.each([
     status: 404,
     data: { error: "not_found", message: "Account not found" },
   });
+});
+
+// Sure lists and finds every account shared with the key's user but writes only to an owned one or
+// a full_control share. Push asks with a recurring transaction create that blank dates make
+// invalid: the account is resolved first, so 404 means no write access and 422 write access (TASK-24).
+function writeProbe(accountId: string) {
+  return postApiV1RecurringTransactions(
+    {
+      recurring_transaction: {
+        account_id: accountId,
+        name: "Write probe",
+        amount: 0,
+        currency: "USD",
+        expected_day_of_month: 0,
+        last_occurrence_date: "",
+        next_expected_date: "",
+      },
+    },
+    as(),
+  );
+}
+
+test.each([
+  ["a read_write share, which every account of another member gets", () => ids.sharedReadWrite],
+  ["a read_only share", () => ids.sharedReadOnly],
+])(
+  "%s: a create answers 500, GET /accounts/{id} 200 and the write probe 404",
+  async (_, accountId) => {
+    const id = accountId();
+
+    const create = createTransaction({ account_id: id });
+
+    await expect(create).rejects.toMatchObject({ kind: "http", status: 500 });
+    expect((await getApiV1AccountsId(id, { include_disabled: true }, as())).status).toBe(200);
+    expect(await writeProbe(id)).toMatchObject({
+      status: 404,
+      data: { error: "record_not_found" },
+    });
+  },
+);
+
+test.each([
+  ["an owned account", () => ids.checking],
+  ["a full_control share", () => ids.sharedFullControl],
+])("%s: the write probe answers 422 and a create 201", async (_, accountId) => {
+  const id = accountId();
+
+  expect(await writeProbe(id)).toMatchObject({ status: 422, data: { error: "validation_failed" } });
+  await expect(createTransaction({ account_id: id })).resolves.toMatchObject({
+    account: { id },
+  });
+});
+
+test("the write probe creates no recurring transaction", async () => {
+  await writeProbe(ids.checking);
+  await writeProbe(ids.sharedReadOnly);
+
+  const list = await getApiV1RecurringTransactions({ per_page: 100 }, as());
+
+  expect(list.status).toBe(200);
+  if (list.status !== 200) return;
+  expect(list.data.recurring_transactions.filter((r) => r.name === "Write probe")).toEqual([]);
 });
 
 test("a read-only key answers 403 to a create and creates nothing", async () => {

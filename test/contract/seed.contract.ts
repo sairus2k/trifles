@@ -11,5 +11,8 @@ test("the pinned Sure answers with the seeded accounts", async () => {
     "Checking",
     "Latency",
     "Savings",
+    "Shared full_control",
+    "Shared read_only",
+    "Shared read_write",
   ]);
 });
