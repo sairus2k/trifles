@@ -2,7 +2,7 @@
 
 > Working title. A minimalist, offline-first PWA for entering transactions into a self-hosted [Sure](https://github.com/we-promise/sure) instance from your phone in a few seconds.
 
-**Status:** pre-alpha, design phase.
+**Status:** pre-alpha. The v1 scope is built; the check on a real iPhone is still pending.
 **License:** MIT
 
 ---
@@ -235,7 +235,7 @@ The build output is static files. Any host works: GitHub Pages, Cloudflare Pages
 
 ## Contributing
 
-Issues and pull requests are welcome once the scaffold is in place. Please keep the app small: every new feature should make entering a transaction faster, not the app bigger.
+Issues and pull requests are welcome. Please keep the app small: every new feature should make entering a transaction faster, not the app bigger.
 
 ## License
 
