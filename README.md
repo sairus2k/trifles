@@ -222,6 +222,7 @@ The build output is static files. Any host works: GitHub Pages, Cloudflare Pages
 - Serve the app from its own path when it shares a domain with Sure, and build with that path as the base (`vite build --base=/quick/`). The service worker is registered with the base as its scope, and the manifest's `scope` and `start_url` are `"./"`, relative to the manifest, so the worker never intercepts Sure itself.
 - The service worker serves the cached app shell first. A new build is picked up on the next visit and applies after a reload.
 - If Sure is behind Cloudflare Access, add a bypass policy for `/api/*` (the API key protects it), or the API calls will be redirected to the login page.
+- Keep the app's own host outside Cloudflare Access as well (a wildcard application covers it): browsers fetch the manifest without cookies, and once the Access session expires the service worker cannot fetch an update. The app serves only public code; the key never leaves the device.
 - Never share the origin with unrelated apps, such as project pages on `<user>.github.io`: any script on the origin can read the API key.
 
 ### Container image
