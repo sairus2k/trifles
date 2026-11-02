@@ -1,4 +1,4 @@
-# Until CI lands after the v1 MVP (TASK-2), this hook is the only automatic gate: commits go straight to `main`.
+# Commits go straight to `main`, so this hook is the only gate before a commit; CI (`.github/workflows/ci.yml`) repeats the checks after a push.
 pre-commit:
   parallel: true
   jobs:

@@ -207,6 +207,8 @@ Commits go straight to `main`, so [lefthook](https://lefthook.dev) checks every 
 | typecheck | `npm run typecheck`                      | the whole project; skipped for Markdown-only commits |
 | test      | `npm test` (Node and browser projects)   | the whole project; skipped for Markdown-only commits |
 
+After every push to `main`, CI (`.github/workflows/ci.yml`) runs lint and format on the whole tree, typecheck, the build and `npm test`.
+
 The browser tests need Chromium (`npx playwright install chromium`). Typecheck and tests see the working tree, not only the staged changes. In an emergency, `git commit --no-verify` or `LEFTHOOK=0` skips the hook.
 
 ### Updating the Sure spec
