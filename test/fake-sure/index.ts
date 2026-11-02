@@ -4,6 +4,7 @@ import type {
   AccountDetail,
   ErrorResponse,
   PatchApiV1TransactionsIdBody,
+  PostApiV1RecurringTransactionsBody,
   PostApiV1TransactionsBody,
   Transaction,
 } from "../../src/api/generated/sure";
@@ -26,7 +27,8 @@ export type FakeSureRoute =
   | "GET /api/v1/transactions"
   | "POST /api/v1/transactions"
   | "PATCH /api/v1/transactions/:id"
-  | "DELETE /api/v1/transactions/:id";
+  | "DELETE /api/v1/transactions/:id"
+  | "POST /api/v1/recurring_transactions";
 
 /**
  * - `{ status }`: answer with that status (and a Sure-like error body) without touching state.
@@ -125,6 +127,9 @@ export function createFakeSure(seed: Partial<FakeSureSeed> = {}, baseUrl = FAKE_
   const state = structuredClone({ ...defaultSeed(), ...seed });
   const faults = new Map<FakeSureRoute, FakeSureFault[]>();
   const requests: FakeSureRequest[] = [];
+  // Listed accounts the key's user cannot write to: another member's, shared `read_only` or
+  // `read_write` (Sure writes only with `full_control`).
+  const readOnlyAccountIds: string[] = [];
   let accountSyncPaused = false;
   let pendingAccountSync: { account: AccountDetail; cents: number }[] = [];
 
@@ -146,6 +151,35 @@ export function createFakeSure(seed: Partial<FakeSureSeed> = {}, baseUrl = FAKE_
     else syncAccount(account, cents);
   }
 
+  function writableAccount(id: string) {
+    if (readOnlyAccountIds.includes(id)) return undefined;
+    return state.accounts.find((a) => a.id === id);
+  }
+
+  // Sure's `create` resolves the account with `writable_by` before it checks anything else and
+  // leaves the RecordNotFound to BaseController (404). Push sends it with blank dates as a write
+  // probe, so only those answers are modelled.
+  function createRecurringTransaction(body: unknown) {
+    const input = (body as Partial<PostApiV1RecurringTransactionsBody> | undefined)
+      ?.recurring_transaction;
+    if (input?.account_id && !writableAccount(input.account_id)) {
+      return HttpResponse.json(ERROR_BODIES[404], { status: 404 });
+    }
+    const errors = [
+      !input?.last_occurrence_date && "Last occurrence date can't be blank",
+      !input?.next_expected_date && "Next expected date can't be blank",
+    ].filter((error) => error !== false);
+    if (errors.length === 0) throw new Error("The fake does not create recurring transactions");
+    return HttpResponse.json(
+      {
+        error: "validation_failed",
+        message: "Recurring transaction could not be created",
+        errors,
+      },
+      { status: 422 },
+    );
+  }
+
   function createTransaction(body: unknown) {
     const tx = (body as Partial<PostApiV1TransactionsBody> | undefined)?.transaction;
     if (!tx?.account_id) return validationFailed("Account ID is required");
@@ -154,7 +188,7 @@ export function createFakeSure(seed: Partial<FakeSureSeed> = {}, baseUrl = FAKE_
 
     // Sure's `create` rescues every StandardError itself, so the RecordNotFound from an unknown or
     // read-only account becomes a 500 before BaseController's rescue_from could make it a 404.
-    const account = state.accounts.find((a) => a.id === tx.account_id);
+    const account = writableAccount(tx.account_id);
     if (!account) return HttpResponse.json(INTERNAL_ERROR, { status: 500 });
 
     const source = tx.source || "api";
@@ -276,6 +310,7 @@ export function createFakeSure(seed: Partial<FakeSureSeed> = {}, baseUrl = FAKE_
     "POST /api/v1/transactions": (_, body) => createTransaction(body),
     "PATCH /api/v1/transactions/:id": (_, body, params) => updateTransaction(params.id!, body),
     "DELETE /api/v1/transactions/:id": (_, __, params) => deleteTransaction(params.id!),
+    "POST /api/v1/recurring_transactions": (_, body) => createRecurringTransaction(body),
   };
 
   const handlers: HttpHandler[] = Object.entries(resolvers).map(([route, resolve]) => {
@@ -305,6 +340,8 @@ export function createFakeSure(seed: Partial<FakeSureSeed> = {}, baseUrl = FAKE_
     /** Pass to `setupServer` (Node) or `setupWorker` (browser), or to `server.use()`. */
     handlers,
     accounts: state.accounts,
+    /** Push an account's id to keep it listed but refuse writes to it, like a share without `full_control`. */
+    readOnlyAccountIds,
     transactions: state.transactions,
     requests,
     /** Queues a fault for the next request to `route`; each fault is used once, in order. */

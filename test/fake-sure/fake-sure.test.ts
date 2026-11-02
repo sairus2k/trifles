@@ -8,6 +8,7 @@ import {
   getApiV1Merchants,
   getApiV1Transactions,
   patchApiV1TransactionsId,
+  postApiV1RecurringTransactions,
   postApiV1Transactions,
   type PatchApiV1TransactionsIdBodyTransaction,
   type PostApiV1TransactionsBodyTransaction,
@@ -140,6 +141,50 @@ describe("POST /transactions", () => {
 
     expect(error).toMatchObject({ kind: "http", status: 500 });
     expect(sure.transactions).toHaveLength(0);
+  });
+
+  test("answers 500 for a read-only account, which GET /accounts/{id} still finds", async () => {
+    sure.readOnlyAccountIds.push("acc-cash");
+
+    const error = await rejection(postApiV1Transactions({ transaction: coffee() }));
+
+    expect(error).toMatchObject({ kind: "http", status: 500 });
+    expect(sure.transactions).toHaveLength(0);
+    expect((await getApiV1AccountsId("acc-cash")).status).toBe(200);
+  });
+});
+
+describe("POST /recurring_transactions (the write probe)", () => {
+  function probe(accountId: string) {
+    return postApiV1RecurringTransactions({
+      recurring_transaction: {
+        account_id: accountId,
+        name: "Probe",
+        amount: 0,
+        currency: "EUR",
+        expected_day_of_month: 0,
+        last_occurrence_date: "",
+        next_expected_date: "",
+      },
+    });
+  }
+
+  test("answers 422 for a writable account with blank dates", async () => {
+    expect(await probe("acc-cash")).toMatchObject({
+      status: 422,
+      data: {
+        error: "validation_failed",
+        errors: ["Last occurrence date can't be blank", "Next expected date can't be blank"],
+      },
+    });
+  });
+
+  test("answers 404 record_not_found for an unknown or read-only account", async () => {
+    sure.readOnlyAccountIds.push("acc-cash");
+
+    const notFound = { status: 404, data: { error: "record_not_found" } };
+    expect(await probe("acc-cash")).toMatchObject(notFound);
+    expect(await probe("missing")).toMatchObject(notFound);
   });
 });
 
