@@ -4,11 +4,12 @@ title: Manual check of the PWA on a real iPhone
 status: To Do
 assignee: []
 created_date: '2026-11-01T19:36:00Z'
-updated_date: '2026-11-02T08:53:00Z'
+updated_date: '2026-11-02T18:02:00Z'
 labels: []
 milestone: m-0
 dependencies:
   - TASK-15
+  - TASK-25
 references:
   - README.md
 priority: high
