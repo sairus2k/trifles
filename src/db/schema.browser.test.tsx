@@ -4,7 +4,7 @@ import { db } from "./schema";
 afterAll(() => db.delete());
 
 // Read back from the IndexedDB the browser actually created, not from Dexie's declaration.
-test("tables and keys match README → Local schema", async () => {
+test("tables, keys and indexes match the schema", async () => {
   await db.open();
   const idb = db.backendDB();
   const names = [...idb.objectStoreNames];

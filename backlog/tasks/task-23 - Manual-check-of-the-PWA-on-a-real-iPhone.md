@@ -4,6 +4,7 @@ title: Manual check of the PWA on a real iPhone
 status: To Do
 assignee: []
 created_date: '2026-11-01T19:36:00Z'
+updated_date: '2026-11-02T08:53:00Z'
 labels: []
 milestone: m-0
 dependencies:
@@ -18,7 +19,7 @@ ordinal: 22000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-TASK-15 made the app installable and offline-capable and proved it in Chromium E2E, but iOS Safari behaviour cannot be automated here: home-screen install, storage eviction, the decimal keyboard, touch gestures and the status bar in standalone mode. The service worker needs a secure context, so the build must be reachable over HTTPS first (no deploy task exists yet; see README → Deployment). The status bar uses `default` with light/dark `theme-color` (README → Mobile details); if it is unreadable in either scheme, that is the fix to make.
+TASK-15 made the app installable and offline-capable and proved it in Chromium E2E, but iOS Safari behaviour cannot be automated here: home-screen install, storage eviction, the decimal keyboard, touch gestures and the status bar in standalone mode. The service worker needs a secure context, so the build must be reachable over HTTPS first (no deploy task exists yet; see README → Deployment). The status bar uses `default` with light/dark `theme-color` (`index.html`); if it is unreadable in either scheme, that is the fix to make.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

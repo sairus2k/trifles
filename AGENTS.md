@@ -26,7 +26,7 @@ Do not edit Backlog task, draft, document, decision, or milestone markdown files
 
 ## Project
 
-Pre-alpha: nothing is scaffolded yet. `README.md` is the design document (architecture, sync rules, pinned stack, testing plan). Read the relevant section before implementing. If the implementation has to diverge from it (a version, the structure, a sync rule), update `README.md` in the same commit.
+`README.md` keeps what the code cannot say: purpose and scope, the architecture and sync overview, Sure API behaviour, the testing strategy and the reasons behind rejected alternatives. The code and its comments are the reference for everything else. Read the relevant README section before implementing. If a change contradicts it (a sync rule, a Sure behaviour, a stack constraint), update `README.md` in the same commit.
 
 ## Git
 

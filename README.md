@@ -30,7 +30,7 @@ The UX is inspired by the classic Russian budgeting service _Drebedengi_: one ke
 - **The form stays open after submit:** amount and note are cleared, account and category are kept, focus returns to the amount.
 - **Merchant autocomplete** from history, which also pre-fills the category most often used with that merchant.
 - **Recent transactions** grouped by day, with pending (unsynced) entries marked; tap to edit, swipe to delete.
-- **Balances** per account, split into assets and liabilities, with a pending delta shown as `≈`.
+- **Balances** per account, split into assets and liabilities, with a pending delta shown as `≈`. No totals: summing accounts in different currencies would need exchange rates.
 - **Settings:** Sure instance URL and API key. A new key keeps the data on the device; another URL replaces it with that instance's (see Sync engine rules → Switching instance).
 
 ### Not in v1
@@ -43,63 +43,49 @@ The UX is inspired by the classic Russian budgeting service _Drebedengi_: one ke
 ## Architecture
 
 ```
-UI (Solid 2): Entry · Recent · Balances · Settings
-   │  reads only from the local DB (live queries)
+UI (Solid 2): Entry · Recent · Balances · Settings          src/features/
+   │  reads only from the local DB (live queries)           src/db/live.ts
    ▼
-Local store (IndexedDB via Dexie)
+Local store (IndexedDB via Dexie)                           src/db/schema.ts
    ├─ accounts, categories, merchants   ← reference data cache
    ├─ transactions                      ← cache of the latest N from the server
    ├─ suggestions                       ← merchant → category usage stats
    └─ outbox                            ← pending writes
    ▲
    │
-Sync engine (plain TS, no UI dependencies)
-   ├─ push: outbox → Sure API (sequential, idempotent)
-   └─ pull: accounts, reference data, recent transactions → local cache
+Sync engine (plain TS, no UI dependencies)                  src/sync/
+   ├─ push: outbox → Sure API (sequential, idempotent)      push.ts, outbox.ts
+   └─ pull: accounts, reference data, recent transactions → local cache  pull.ts
    ▼
-Sure API (/api/v1, X-Api-Key)
+Sure API (/api/v1, X-Api-Key)                               src/api/
 ```
+
+The rest: `src/domain/` (calculator, money, currencies, local dates), `src/sw.ts` and `sw-plugin.ts` (service worker), `spec/` (the vendored Sure spec), `test/fake-sure/` (stateful fake of the Sure API), `test/contract/` and `e2e/`. Tables, keys and indexes are declared in `src/db/schema.ts`. The rules of the Recent list and the Balances screen are pure functions with unit tests in `src/features/recent/rows.ts` and `src/features/balances/rows.ts`.
 
 ### Data flow for a new transaction
 
 1. The form validates input and writes **one outbox record** in a single Dexie transaction. The UI updates immediately through the live query.
 2. The sync engine picks the record, sends `POST /api/v1/transactions` with `external_id = clientId`, and marks the record as done on `200` or `201`, keeping the transaction's `created_at` as `appliedAt`.
 3. The engine pulls the affected account. Its balance replaces the pending delta (`pendingDeltas()`) once the account's `updated_at` is at or after `appliedAt`. Sure recalculates balances asynchronously, after it created the transaction, and renders both times on its own clock in whole seconds, so `>=` also clears a recalculation in the same second. The device clock is never compared with the server's. Only creates and transfers carry a delta: a `DELETE` answer has no server time.
-4. A recent pull that started after the record was done removes it once its delta has cleared, in the same Dexie transaction that replaces the cache. That pull has the transaction if it is among the latest 100, and never will otherwise (older, deleted in Sure, or on an account the key no longer reaches), so nothing else is waited for. A done `update` or `delete` carries no delta and goes on the first such pull.
-
-### Local schema (Dexie)
-
-| Table          | Key            | Notes                                                                                                                                                                            |
-| -------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `accounts`     | `id`           | `name`, `currency`, `classification` (asset/liability), `balanceCents`, `status`, `updatedAt`                                                                                    |
-| `categories`   | `id`           | `name`, `color`, `icon` (Sure no longer has category classification)                                                                                                             |
-| `merchants`    | `id`           | `name`                                                                                                                                                                           |
-| `transactions` | `id`           | Server transactions with `externalId` (matches outbox records), `createdAt` (orders a day) and `transferId` (pairs transfer legs); index on `date` and `accountId`               |
-| `suggestions`  | `merchantName` | `merchantId`, `categoryId` (most used), `count`, `lastUsedAt`; rebuilt from each recent pull, merchants outside it are kept                                                      |
-| `outbox`       | `clientId`     | `op`, `payload`, `status`, `attempts`, `nextAttemptAt`, `lastError`, `createdAt`, `appliedAt`; index on `createdAt` (queue order)                                                |
-| `meta`         | `key`          | `baseUrl` and `apiKey` (Settings), `syncPausedAt` (set when Sure rejects the key, cleared by saving settings), `entryAccountId` (the entry form's account, kept across restarts) |
-
-Outbox `op` is one of `create`, `transfer`, `update`, `delete`. Status is `pending | sending | failed | done`.
+4. A recent pull that started after the record was done removes it once its delta has cleared (`dropFinished()`), in the same Dexie transaction that replaces the cache. That pull has the transaction if it is among the latest 100, and never will otherwise (older, deleted in Sure, or on an account the key no longer reaches), so nothing else is waited for. A done `update` or `delete` carries no delta and goes on the first such pull.
 
 ### Sync engine rules
 
-- **Triggers:** app start, `online`, `visibilitychange → visible`, a 60 s timer while the app is visible, after every outbox write (`onOutboxWrite`), and when a head that is backing off becomes due. Do **not** rely on the Background Sync API (not available on iOS).
-- **One worker:** each run holds `navigator.locks.request('outbox', …)`, so only one tab processes the queue, and reads the settings from `meta` once it holds the lock. Within a tab, triggers that fire while a run is in flight merge into one queued run. A record still `sending` when a run takes the lock was left by a tab that closed mid-request: it goes back to `pending` with the attempt counted, since the request may have reached Sure.
-- **Offline:** no run starts while `navigator.onLine` is `false`, so an entry made offline costs no attempt and stays editable. `online` ends every backoff before its run: the failures were most likely the missing connection.
-- **Pause:** a rejected key (`401`, or `403` from a read-only key) on push or pull sets `syncPausedAt` in `meta`, and no run starts until `saveSettings()` stores new settings and clears it. Kept in `meta`, the pause holds across reloads and tabs, so a reload spends no request on a rejected key. The paused record goes back to the queue without counting an attempt, since Sure applied nothing, so an entry made while the key is rejected stays editable; a transfer counts it, because its first leg may have been accepted before the second was rejected.
-- **Switching instance:** a URL that differs from the saved one after normalisation (trailing slashes, host case and a default port do not count) may be another Sure, whose ids the cache and the outbox do not match. `switchInstance()` takes the sync lock, so it waits for a run of any tab still talking to the old instance and the runs behind it start with the new settings; then, in one Dexie transaction, it clears the cache, the outbox and the rest of `meta` (the pause and the entry form's account) and stores the settings. With records that are not `done` it changes nothing and returns their count: Settings shows it and offers to delete them and switch, to keep everything because the new URL is the same Sure under another address (an alias cannot be told apart, so this is the user's call, and the records then go to the new URL), or to cancel. The count is taken again under the lock, so a record another tab added after the question makes it ask again. A new key for the same URL keeps everything. Reference data is pulled again whenever the URL changes.
-- **Sequential:** records are sent one at a time, in creation order. A head record that is backing off or still `sending` holds the rest of the queue; `failed` and `done` records do not.
-- **Idempotency:** every create sends `external_id` (the client UUID) and `source: "sure-quick-entry"`. Sure returns `200` with the existing transaction if that account already has one with that pair (the key is scoped to the account), so **retrying after any ambiguous failure is safe**.
-- **Error handling:**
-  - `200` / `201` → done. A `DELETE` answered `404` is done too: a retry after a lost response finds the transaction already gone.
-  - `422` and any other returned `4xx` (for example `404`, which the spec does not declare) → `failed`, shown in the UI with the server message; the queue continues.
-  - `401`, `403` (a read-only key) or missing settings → pause the queue and send the user to Settings.
-  - `429`, `5xx`, network error, non-JSON answer, timeout (30 s) → retry with exponential backoff (2 s doubling per attempt, capped at 5 minutes) and equal jitter.
-  - A create (or transfer leg) answered `500` → `GET /api/v1/accounts/{id}?include_disabled=true`, since Sure answers `500` for an account the key cannot write. `404` → `failed` with a message that the account is gone, and the queue continues. `200` → the write probe (`POST /api/v1/recurring_transactions` with blank dates, see Sure API notes): `404` → `failed` with a message that the account is read-only for the user, and the queue continues; `422` (the user may write, so the `500` was transient), any other answer or a failed request → retry as above.
-  - A transfer resends both legs on every attempt; Sure answers `200` for the leg it already has.
-- **Editing pending records:** editing or deleting a record that has not been sent yet rewrites or removes the outbox entry instead of queuing a second operation. This is allowed only while the write certainly is not on the server: a `create` or `transfer` never attempted (a pause does not count for a `create`), or a `create` that failed with a definitive answer (`422`, `404`, an account Sure no longer has, or one the user cannot write to). Anything that may have reached Sure (`sending`, retrying after an attempt, a failed transfer with one leg possibly sent, `done`) is locked: a retry with the same `external_id` would answer `200` with the old values, and a changed account would create a second transaction. Once `done`, an edit goes out as an `update`. A `failed` record of any kind can be discarded (`discardFailed()`): a failed transfer then leaves whatever leg already reached Sure, and a failed `update` or `delete` leaves the transaction as Sure has it.
-- **Editing synced transactions** enqueues `update` (full values; `PATCH` cannot change the account) or `delete`. A queued `update` or `delete` for the same transaction is overwritten instead of queuing another one, unless it is already `sending`.
-- **Pull:** a run pushes first, then pulls. `pullReference()` (accounts, categories and merchants, every page) runs on the first online run of a session and after the URL changes; `pullRecent()` (accounts and the latest 100 transactions) runs after a push that sent something and on every trigger except a write or a backoff wake-up. A failed pull is left to the next trigger; every request times out after 30 s, since a pull holds the sync lock. Each pull fetches everything first and replaces the cached tables in one Dexie transaction, so a failed pull leaves the cache as it was. `pullRecent()` also removes the `done` records it has caught up with (see Data flow for a new transaction); `pending`, `sending` and `failed` records are never removed by sync.
+A summary; the reasons sit in comments next to the code that applies each rule (files under `src/sync/`).
+
+- **Triggers** (`engine.ts`): app start, `online`, `visibilitychange → visible`, a 60 s timer while the app is visible, every outbox write, and a backing-off head becoming due. Never the Background Sync API (not available on iOS). No run starts while `navigator.onLine` is `false`.
+- **One worker** (`engine.ts`, `SYNC_LOCK` in `outbox.ts`): a run holds a Web Lock, so only one tab processes the queue; triggers that fire during a run merge into one queued run.
+- **Order and idempotency** (`outbox.ts`, `push.ts`): records go one at a time in creation order, and a head that is backing off or `sending` holds the queue. Every create sends `external_id` (the client UUID) and `source`, so retrying after an ambiguous failure is safe.
+- **Answers** (`push.ts`):
+  - `200` / `201`, or `404` to a `DELETE` → done.
+  - `422` and any other returned `4xx` → `failed` with Sure's message; the queue continues.
+  - `401`, `403` (a read-only key) or missing settings → pause.
+  - `429`, `5xx`, network error, non-JSON answer, 30 s timeout → exponential backoff (2 s doubling, capped at 5 minutes, equal jitter).
+  - `500` to a create → the account lookup, then the write probe (see Sure API notes): an account that is gone or read-only for the user fails the record, anything else is retried.
+- **Pause** (`settings.ts`): `syncPausedAt` in `meta` holds across reloads and tabs until `saveSettings()` stores new settings.
+- **Switching instance** (`settings.ts`, Settings screen): another URL clears the cache, the outbox and the rest of `meta` under the sync lock. With unsent records the user deletes them, keeps them (the same Sure under another address), or cancels. A new key for the same URL keeps everything.
+- **Editing** (`isEditable()` in `outbox.ts`): a write that certainly is not on the server is rewritten or removed in the outbox; anything that may have reached Sure is locked. A synced transaction changes through a full-value `update` or a `delete`, which replaces a queued one for the same transaction. A `failed` record can be discarded.
+- **Pull** (`pull.ts`, `engine.ts`): a run pushes first, then pulls. Reference data on the first online run of a session and after the URL changes; accounts and the latest 100 transactions after a push that sent something and on every other trigger except a write or a backoff wake-up. Each pull replaces the cache in one Dexie transaction, so a failed pull changes nothing.
 
 ### Transfers
 
@@ -141,199 +127,54 @@ Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to t
 - **Amounts in responses:** use `amount_decimal` (exact, locale-independent, positive = outflow). `amount` is a formatted display string; do not parse it. Responses also contain `amount_cents` and `signed_amount_cents`, but **they are missing from the OpenAPI schema**, so they are not in the generated types; do not depend on them.
 - **Balances are recalculated asynchronously** after a write. Expect a stale balance immediately after `201`. The recalculation ends with `account.update!(balance:, cash_balance:)`, which moves the account's `updated_at` only when the balance changes.
 - **Rate limit** for self-hosted instances is 10,000 requests per hour per key.
-- **Spec issues:** three path parameters (`family_exports/{id}`, `family_exports/{id}/download`, `syncs/{id}`) put `format` outside `schema`, which fails strict validation. orval needs `unsafeDisableValidation: true`.
+- **Spec issues:** see `spec/README.md` → Known issues. Because of them orval needs `unsafeDisableValidation: true`.
 
 ## Tech stack
 
-Pinned versions as of 2026-10-31. Solid 2 is a release candidate: **install every Solid package with an exact version**. The `latest` dist-tag of `@solidjs/web` still points to `2.0.0-rc.0`, and `solid-js@latest` is 1.x, so a plain `npm i` produces an incompatible mix.
+`package.json` pins every package to an exact version. Solid 2 is a release candidate: **install every Solid package with an exact version**. The `latest` dist-tag of `@solidjs/web` still points to `2.0.0-rc.0`, and `solid-js@latest` is 1.x, so a plain `npm i` produces an incompatible mix.
 
-| Area                   | Package                                | Version                                    |
-| ---------------------- | -------------------------------------- | ------------------------------------------ |
-| Language               | `typescript`                           | 7.0.2                                      |
-| Build                  | `vite`                                 | 8.3.5 (Vitest 5.0 does not support Vite 9) |
-| UI                     | `solid-js`, `@solidjs/web`             | 2.0.0-rc.20                                |
-| UI build               | `@solidjs/vite-plugin`                 | 3.0.0-next.54                              |
-| Styling                | `tailwindcss`, `@tailwindcss/vite`     | 4.3.3                                      |
-| PWA                    | hand-written service worker            | no dependency                              |
-| Local DB               | `dexie`                                | 4.4.7                                      |
-| API client             | `orval` (fetch client)                 | 8.46.0                                     |
-| Mocks                  | `msw`, `@faker-js/faker`               | 3.0.3, 10.6.0                              |
-| Unit / component tests | `vitest`, `@vitest/browser-playwright` | 5.0.5                                      |
-| Component testing      | `@solidjs/testing-library`             | 1.0.0-rc.2                                 |
-| IndexedDB in Node      | `fake-indexeddb`                       | 6.2.7                                      |
-| E2E                    | `@playwright/test`                     | 1.64.1                                     |
-| Lint / format          | `oxlint`, `oxfmt`                      | 1.90.0, 0.75.0 (Tailwind class sorting on) |
+| Area                   | Package                                | Note                                  |
+| ---------------------- | -------------------------------------- | ------------------------------------- |
+| Language               | `typescript`                           | 7                                     |
+| Build                  | `vite`                                 | 8: Vitest 5.0 does not support Vite 9 |
+| UI                     | `solid-js`, `@solidjs/web`             | 2 (release candidate)                 |
+| UI build               | `@solidjs/vite-plugin`                 |                                       |
+| Styling                | `tailwindcss`, `@tailwindcss/vite`     | 4                                     |
+| PWA                    | hand-written service worker            | no dependency                         |
+| Local DB               | `dexie`                                |                                       |
+| API client             | `orval` (fetch client)                 |                                       |
+| Mocks                  | `msw`, `@faker-js/faker`               |                                       |
+| Unit / component tests | `vitest`, `@vitest/browser-playwright` |                                       |
+| Component testing      | `@solidjs/testing-library`             |                                       |
+| IndexedDB in Node      | `fake-indexeddb`                       |                                       |
+| E2E                    | `@playwright/test`                     |                                       |
+| Lint / format          | `oxlint`, `oxfmt`                      | Tailwind class sorting on             |
 
 ### Why these choices
 
 - **Dexie instead of TanStack DB.** Three entities and one write type do not justify a reactive collection engine that is still pre-1.0. Dexie gives storage and live queries; the outbox is ~200 lines we fully control.
 - **orval.** Works with TypeScript 7 out of the box (its core does not use the compiler API), produces a single file, and types responses as a union discriminated by status, which maps directly onto outbox handling. `openapi-typescript` and the current stable `@hey-api/openapi-ts` require the TypeScript 5/6 compiler API and break on TypeScript 7. kubb 5 was run on the same spec and tags (2026-11-01) and also passed `tsc` 7, with a smaller install (~26 MB and 59 packages, against ~95 MB and 82 packages for orval, which installs every generator plugin and two nested copies of `typescript@6.0.3`). It lost on the output: it copies its own runtime client into three extra files (99 KB in total, against 35 KB for orval's single file), it has no mutator, so the content-type check would live in a custom `transport`, and its "optional" `@kubb/parser-ts` peer is required: without it kubb reports success and writes functions with no declarations. It also sends telemetry unless `KUBB_DISABLE_TELEMETRY=1` is set. The extra install size is dev-only and never reaches the bundle.
 - **Tailwind 4 through `@tailwindcss/vite`.** Every screen gets the same tokens instead of inventing its own styles. It runs only at build time and loads no script, so the rule against third-party and CDN scripts holds (the Play CDN script is never used). Its CSS holds only the classes the app uses: `src/index.css` limits scanning to the components, because automatic detection also reads the README, the backlog and the sync code and turns words like `block` or `table` into CSS. The theme keeps only semantic colors (`--color-*: initial`), each a `light-dark()` pair, so the app follows the system scheme with no `dark:` variants; lightningcss compiles `light-dark()` down for older Safari. The install is dev-only (7 packages plus platform binaries, ~14 MB, with Tailwind's own pinned `lightningcss`). oxfmt sorts the classes with the same algorithm as `prettier-plugin-tailwindcss`.
-- **Solid 2.** A small project with almost no ecosystem dependencies is a good place to adopt it early.
+- **Solid 2.** A small project with almost no ecosystem dependencies is a good place to adopt it early. AI coding assistants mostly know Solid 1 and suggest `createResource`, `Suspense`, `batch` and single-argument `createEffect`; `npm run typecheck` rejects them, since Solid 2 neither exports nor types the removed APIs, so no separate migration analyzer is needed.
 - **A hand-written service worker instead of `vite-plugin-pwa` or Serwist.** The worker only precaches the app shell and serves `index.html` for navigations; data lives in Dexie, so no runtime caching is needed. Prototypes of both options (2026-11-01) passed the same offline E2E suite: Serwist added 19 packages and a 10 kB (gzip) `sw.js`, the hand-written worker is ~75 lines (worker plus a small Vite plugin that injects the precache list and a content hash) and a 0.8 kB `sw.js`. `vite-plugin-pwa` pulls in ~266 packages through `workbox-build` and pins Vite to 8.
 
-## Project structure
+## Mobile details
 
-```
-spec/
-  sure-openapi.yaml        vendored spec, pinned to a Sure commit
-src/
-  api/
-    generated/             orval output, do not edit
-    http.ts                orval mutator: base URL, X-Api-Key, error normalisation
-  db/
-    schema.ts              Dexie schema and migrations
-    live.ts                createLiveQuery() bridge to Solid
-  sync/
-    outbox.ts              enqueue, edit and remove pending writes; claim next, mark done/failed/retry/paused, drop finished
-    push.ts                send loop, backoff, idempotency
-    pull.ts                reference data and recent transactions
-    settings.ts            instance URL, API key and the sync pause, kept in meta; switching instance
-    engine.ts              triggers, Web Lock, lifecycle
-  domain/
-    calc.ts                amount expression parser (no eval)
-    money.ts               decimal string helpers, display amounts
-    currency.ts            fraction digits for entered amounts, minor units for balances
-    dates.ts               local YYYY-MM-DD dates, day headings
-  features/
-    entry/  recent/  balances/  settings/
-  app.tsx
-  main.tsx
-  index.css                Tailwind entry: sources, theme tokens, safe-area utilities
-  sw.ts                    service worker: precache the shell, offline navigation (classic script)
-sw-plugin.ts               Vite plugin: builds src/sw.ts into sw.js with the precache list and version
-tsconfig.sw.json           typechecks src/sw.ts with the WebWorker lib
-public/
-  manifest.webmanifest     start_url and scope "./", so they follow the path the app is served from
-  icon.svg, *.png          app icons; the PNGs are rendered from icon.svg
-test/
-  fake-sure/               stateful MSW fake of the Sure API
-  contract/                contract tests against a real Sure in Docker
-e2e/
-```
+What the markup does not explain; persistent storage, the status bar and `theme-color` are explained where they are set (`src/features/settings/settings.tsx`, `index.html`).
 
-## Implementation notes
-
-### API client
-
-`orval.config.ts`:
-
-```ts
-import { defineConfig } from "orval";
-
-export default defineConfig({
-  sure: {
-    input: {
-      target: "./spec/sure-openapi.yaml",
-      unsafeDisableValidation: true,
-      filters: {
-        tags: ["Accounts", "Transactions", "Categories", "Merchants", "Recurring Transactions"],
-      },
-    },
-    output: {
-      target: "./src/api/generated/sure.ts",
-      client: "fetch",
-      mode: "single",
-      override: {
-        mutator: { path: "./src/api/http.ts", name: "sureFetch" },
-      },
-    },
-    hooks: { afterAllFilesWrite: "oxfmt" },
-  },
-});
-```
-
-- Only the tags v1 uses are generated (~1,900 lines instead of ~10,600 for the whole spec). Add a tag to `filters` when a feature needs it.
-- No MSW mocks are generated: the sync tests use the hand-written fake in `test/fake-sure/`. Add them in a separate file if a consumer appears, so the client never imports `msw` or faker.
-- The output is formatted by oxfmt, so a spec update produces a readable diff.
-
-Each generated function resolves to `{ status, data, headers }`, typed as a union of the statuses **the spec declares** for that operation (for `POST /transactions`: `200 | 201 | 422`). The mutator (`src/api/http.ts`) makes that type honest:
-
-- It adds the instance URL (set with `configureSure({ baseUrl, apiKey })`) and `X-Api-Key`. A request can pass its own `settings` instead, so Settings checks a key before saving it without touching the engine's.
-- It reads the body as text and checks the status and `content-type` **before** parsing JSON.
-- It returns JSON responses with a 2xx or 4xx status, except 401 and 429, as `{ status, data, headers }`. This includes `422` with the server message.
-- It throws `SureError` with `kind` and `status` for everything else: `http` for 401, 429 and 5xx (whatever the body, since a proxy may answer with HTML and the spec rarely declares them), `not-json` for a non-JSON or malformed body (for example a proxy login page with `200`), `network` when the request or body read fails, and `not-configured` without settings.
-
-### Solid ↔ Dexie bridge
-
-`src/db/live.ts` wraps a Dexie `liveQuery` in Solid 2's `from()` inside a `createMemo`:
-
-```ts
-const accounts = createLiveQuery(() => db.accounts.toArray());
-const recent = createLiveQuery(accountId, (id) =>
-  db.transactions.where("accountId").equals(id).toArray(),
-);
-```
-
-- `from()` closes the Dexie subscription when the memo re-runs and when its owner is disposed, so there is no hand-written `onCleanup`.
-- Until the first result arrives the accessor is pending: render it inside `<Loading>`. A failed query surfaces in `<Errored>`.
-- Dexie runs the query outside Solid's tracking, so a signal read inside the query is **not** tracked. Pass reactive parameters (for example an account filter) as the first argument; when it changes, the old subscription closes and a new one opens.
-
-**Do not add a second optimistic layer** with Solid's `action` / `createOptimistic`: the outbox already is the optimistic layer.
-
-### Solid 2 gotchas
-
-- Signal writes are applied on a microtask; `batch` is gone. Call `flush()` when you need to read a value right after writing it (for example reset a field and focus it).
-- `createEffect` takes two functions: `createEffect(compute, apply)`.
-- `Suspense` → `<Loading>`, `ErrorBoundary` → `<Errored>`, `For` and `Index` are merged.
-- **AI coding assistants mostly know Solid 1** and will suggest `createResource`, `Suspense`, `batch` and single-argument `createEffect`. `npm run typecheck` rejects them: the removed APIs are not exported or typed in Solid 2, so no separate migration analyzer is needed. Point agents to [v2.solidjs.com](https://v2.solidjs.com/migration/from-solid-1).
-
-### Mobile details
-
-- Call `navigator.storage.persist()` on first run: Settings requests it when the settings are first saved, inside the tap on Save. On iOS, an app installed to the home screen is exempt from the 7-day storage eviction that applies to Safari tabs; an unsent outbox must not be lost.
 - The viewport covers the notch (`viewport-fit=cover`), so screens pad themselves with the `pt-safe`, `px-safe` and `pb-safe` utilities from `src/index.css`; without them the header sits under the status bar and the last button under the home indicator in standalone mode.
-- The status bar uses `apple-mobile-web-app-status-bar-style: default`: `black-translucent` always draws white text, which is unreadable on the light theme. `theme-color` comes in a light and a dark variant; meta tags cannot read CSS variables, so both repeat the `--color-surface` literals from `src/index.css`, and the manifest's `theme_color` / `background_color` repeat the light one.
 - Every button and input is at least 44 px tall (`min-h-11`), and inputs use 16 px text (`text-base`): iOS Safari zooms the page in when it focuses a field with smaller text.
 - The amount field uses `inputmode="decimal"` plus an on-screen operator row (`+ − × ÷`), because the decimal keyboard has no operators.
-- Dates are stored as local `YYYY-MM-DD`, never as ISO timestamps; otherwise an entry made at 00:30 lands on the previous day.
-- The calculator is a small expression parser. Never use `eval` or `new Function`.
-
-### Recent list
-
-`src/features/recent/rows.ts` turns the cached transactions and the outbox into day groups; it is pure, so every rule has a unit test.
-
-- **One row per entry.** A create or transfer this app sent is matched to its pulled transaction by `external_id`; once it is `done` and pulled, the server row stands for it. The legs of a transfer show as one row, grouped by Sure's transfer id, or by our client id before Sure pairs them.
-- **Changes on top.** The newest `update` of a transaction shows its values and a `delete` hides it, while queued, sending or `done`; a failed one shows the transaction with Sure's message and can be discarded. A `done` change keeps its overlay until the first pull that started after it was sent drops it, so an edit never flips back to the old values between push and pull.
-- **What a row allows.** An entry that is certainly not on the server (`isEditable()`) is rewritten or removed in the outbox. A synced transaction is edited as a full-value `update` (its account is fixed, and a category or merchant cannot be cleared) and deleted as a `delete`. A synced transfer can only be deleted, leg by leg: a changed leg would no longer match its pair. A failed transfer can only be dismissed, since one leg may be in Sure. Anything retrying, sending, or sent but not pulled yet is locked and says why.
-- **Editor and swipe.** Tapping a row opens the entry form in a `<dialog>` with a date field; an untouched amount is sent as stored, so an edit does not round extra digits. Swiping left uncovers a Delete button; the editor has one too, for keyboards.
-
-### Balances
-
-`src/features/balances/rows.ts` turns the cached accounts and `pendingDeltas()` into the two groups; the header's Balances button swaps it in for the form, which stays mounted so a typed amount survives.
-
-- **Which accounts.** Active ones, by name, split by Sure's `classification`, the same set the form offers. A liability is positive while it is owed, as in Sure. There are no totals: summing accounts in different currencies would need exchange rates.
-- **Exact amounts.** `balance_cents` is the balance times Sure's `minor_unit_conversion` (`minorUnitConversion()`), which is not `amountScale()`: 5 for MGA and MRU, 10^8 for BTC, 10^18 for ETH. `fromMinorUnits()` turns it back into a decimal string. An ETH balance past 2^53 minor units has already lost digits in `JSON.parse`, so it is display-grade only.
-- **Pending delta.** An account with entries Sure has not counted shows `≈` and Sure's balance plus the delta, with Sure's balance and the signed delta under it. The delta is added as decimals (`addDecimals()`), not converted to minor units, which a conversion of 5 would round. It goes away once a pull brings the recalculated balance (see Data flow for a new transaction).
 
 ## Testing
 
 Effort follows risk: most of the complexity is in the sync engine, so most of the tests are there.
 
-1. **Sync engine** in the Node project (Vitest + `fake-indexeddb` + `msw/node` + the stateful fake in `test/fake-sure/`). The engine is plain TS with no Solid, and every Node test file gets its own `fake-indexeddb`, so the app's shared `db` needs no per-file isolation. The fake answers `201` for a new account + `external_id` + `source` and `200` with the existing transaction for a repeat, moves the account balance and `updated_at` (whole seconds, like Sure) after a write or holds them with `pauseAccountSync()`, and `failNext(route, fault)` makes the next request to a route answer a status (`401`, `422`, `500`…), drop the connection, apply the write and lose the response, or never answer. `createFakeSure(seed, baseUrl)` serves a second instance under another URL. `PATCH` and `DELETE /transactions/{id}` follow Sure's update rules (blank fields are kept) and answer `404` for an unknown transaction; a create for an unknown account answers `500`, as Sure does, and `GET /accounts/{id}` answers `404`. An id pushed to `readOnlyAccountIds` stands for an account shared without `full_control`: it stays listed and found, a create answers `500`, and the write probe (`POST /recurring_transactions` with blank dates) answers `404` where a writable account gets `422`. The engine's triggers run here too: `window`, `document` and `navigator.onLine` are stubbed with `vi.stubGlobal`, and fake timers cover `setTimeout` and `setInterval` (fake-indexeddb schedules with `setImmediate`, which stays real). Browser mode is not an option for sync tests: browser test files share one origin and the app's `db`, and `schema.browser.test.tsx` deletes it. The E2E tests cover real `online` and offline. Required scenarios:
-   - request reaches the server, response is lost → retry → `200` → no duplicate;
-   - `422` → `failed`, the queue continues;
-   - a create for an account Sure no longer has (`500`, then `404` from the account lookup) → `failed`, the queue continues; a create for an account the user can read but not write (`500`, `200` from the lookup, `404` from the write probe) → `failed`, the queue continues; a `500` for a writable account is retried;
-   - `401` → the queue pauses, no retry loop;
-   - `500` then `201` → backoff works;
-   - offline enqueue → `online` → push;
-   - pending balance delta clears only once the account `updated_at` reaches the transaction's `created_at`, including in the same second;
-   - a `done` record leaves the outbox only on a pull that started after it was sent, and a create or transfer only once its delta has cleared, whether its transaction is cached, older than the latest 100 or deleted in Sure;
-   - transfer with one leg sent and one failed → resumes correctly;
-   - two concurrent sync triggers → one worker;
-   - switching instance → nothing old is sent to either instance or left in the cache, a run in flight finishes first, and a run behind the switch uses the new settings even before its tab's liveQuery has seen them;
-   - `vi.setSystemTime` at 00:30 Europe/Paris → correct local date.
-2. **Contract tests** against a real Sure in Docker (`test/contract/`), on the commit pinned in `spec/README.md`. They check that the fake's assumptions hold. Run `npm run test:contract` before upgrading Sure, not on every commit: it needs Docker, and the first run pulls the Sure image (about 1 GB). A Vitest `globalSetup` starts `ghcr.io/we-promise/sure:sha-<commit>` with its worker, Postgres and Redis on `127.0.0.1:3999` (`SURE_CONTRACT_PORT` changes the port), seeds a user, a `read_write` and a `read` key, three manual USD accounts, a category, a merchant and a second member with an account not shared with the keys' user and three shared with it as `read_write`, `read_only` and `full_control` with `rails runner` (the API cannot create them), and removes the stack afterwards. `KEEP_SURE=1` leaves it running for inspection. The suite has its own config (`vitest.contract.config.ts`), so `npm test` and the pre-commit hook never start Docker. It checks:
-   - repeated `external_id` returns `200` with the existing transaction;
-   - `nature: "expense"` stores a positive amount, `"income"` a negative one;
-   - an expense and an income of the same amount on two same-currency manual accounts are auto-matched into a transfer;
-   - `PATCH` keeps `null` fields, blank `category_id` / `merchant_id` and `currency`, and clears notes with `""`; `PATCH` and `DELETE` of an unknown transaction answer `404 not_found`;
-   - a create for an unknown account, or for another member's account not shared with the key, answers `500`, and `GET /accounts/{id}` answers `404` for both;
-   - a create for an account shared as `read_write` or `read_only` answers `500`, `GET /accounts/{id}` answers `200` and the write probe `404`; for an owned account or a `full_control` share the probe answers `422` and a create `201`; the probe creates no recurring transaction;
-   - a read-only key answers `403` to a create, and to the Settings probe (`DELETE` of a random id) where a `read_write` key gets `404`;
-   - balance update latency: the time from a `201` until the account's `updated_at` reaches the transaction's `created_at`, printed as min / median / max over five writes.
-3. **Components** in Vitest browser mode with Playwright (real IndexedDB): entry form (sign, calculator, sticky account/category), pending rows. The Dexie schema and `createLiveQuery()` are tested here too: the node project resolves `solid-js` to its non-reactive server build. Browser test files share one origin, and `schema.browser.test.tsx` deletes the app's `db`, so they run one file at a time (`fileParallelism: false`) and a test that is not about the app's `db` opens its own uniquely named database. `@solidjs/testing-library` registers no automatic cleanup without Vitest globals, so a file that renders components calls `cleanup()` in `afterEach`. A browser test that needs Sure starts `setupWorker(...sure.handlers)` from `msw/browser`; the browser project serves the worker script through `msw/vite` in `worker-only` mode (see `test/fake-sure/fake-sure.browser.test.tsx`).
-4. **E2E** with Playwright against `vite preview` (`e2e/pwa.spec.ts`): install the service worker → `context.setOffline(true)` → reload → app loads; enter offline → pending row and `≈` balance → back online → synced; an offline deep link opens the app while an offline `/api/` request stays a network error; precached files are all on the app's origin. A second build under `/quick/` (the `sub-path` project, `e2e/sub-path.spec.ts`) checks that the worker and the manifest cover only that path and an offline navigation to the root is left to the network. `e2e/update.spec.ts` rewrites the version in the served `dist/sw.js` (the browser's update check bypasses `page.route`) and expects the new worker to replace the cached shell after a reload. `e2e/fake-sure.ts` answers `https://sure.test` with the stateful fake through `context.route`. A route keeps answering while the context is offline, so the helper's `setOffline()` makes it abort too; and `route.fulfill` skips the browser's CORS check, so `e2e/cors.spec.ts` starts a real server on a second origin to check that Settings tells a CORS block from an unreachable host. `e2e/style.spec.ts` checks what only the built CSS shows: no request leaves the origin, every control is at least 44 px tall, and the colors follow the system scheme.
-5. **Manual checklist on a real iPhone:** install to home screen, storage persistence after several days, decimal keyboard and operator row.
+1. **Sync engine** in the Node project (Vitest + `fake-indexeddb` + `msw/node` + the stateful fake in `test/fake-sure/`). The engine is plain TS with no Solid, and every Node test file gets its own `fake-indexeddb`, so the app's shared `db` needs no per-file isolation. The engine's triggers run here too: `window`, `document` and `navigator.onLine` are stubbed with `vi.stubGlobal`, and fake timers cover `setTimeout` and `setInterval` (fake-indexeddb schedules with `setImmediate`, which stays real). Browser mode is not an option for sync tests: browser test files share one origin and the app's `db`, and `schema.browser.test.tsx` deletes it. The E2E tests cover real `online` and offline.
+2. **Contract tests** against a real Sure in Docker (`test/contract/`), on the commit pinned in `spec/README.md`. They check that the fake's assumptions hold. Run `npm run test:contract` before upgrading Sure, not on every commit: it needs Docker, and the first run pulls the Sure image (about 1 GB). The stack listens on `127.0.0.1:3999` (`SURE_CONTRACT_PORT` changes the port) and is removed afterwards; `KEEP_SURE=1` leaves it running for inspection. The suite has its own config (`vitest.contract.config.ts`), so `npm test` and the pre-commit hook never start Docker.
+3. **Components** in Vitest browser mode with Playwright (real IndexedDB). The Dexie schema and `createLiveQuery()` are tested here too: the node project resolves `solid-js` to its non-reactive server build. Browser test files share one origin, and `schema.browser.test.tsx` deletes the app's `db`, so they run one file at a time (`fileParallelism: false`) and a test that is not about the app's `db` opens its own uniquely named database. `@solidjs/testing-library` registers no automatic cleanup without Vitest globals, so a file that renders components calls `cleanup()` in `afterEach`. A browser test that needs Sure starts `setupWorker(...sure.handlers)` from `msw/browser` (see `test/fake-sure/fake-sure.browser.test.tsx`).
+4. **E2E** with Playwright against `vite preview` (`e2e/`): offline start and sync, a build under a sub-path, service worker updates, CORS and the built CSS. `e2e/fake-sure.ts` answers `https://sure.test` with the stateful fake through `context.route`. A route keeps answering while the context is offline, so the helper's `setOffline()` makes it abort too; `route.fulfill` skips the browser's CORS check, so `e2e/cors.spec.ts` starts a real server on a second origin; and the browser's update check bypasses `page.route`, so `e2e/update.spec.ts` rewrites the served `dist/sw.js`.
+5. **Manual checklist on a real iPhone** (TASK-23): install to home screen, storage persistence after several days, decimal keyboard and operator row.
 
 orval's generated MSW handlers (`mock: true`) always answer `200` and fill fields with random strings, so the sync engine tests use the hand-written fake instead, and the client is generated without them. Seed faker in test setup.
 
@@ -370,13 +211,7 @@ The browser tests need Chromium (`npx playwright install chromium`). Typecheck a
 
 ### Updating the Sure spec
 
-```sh
-# take docs/api/openapi.yaml from the Sure commit your instance runs
-git -C ../sure show <commit>:docs/api/openapi.yaml > spec/sure-openapi.yaml
-npm run gen:api
-```
-
-Record the Sure commit in `spec/README.md`, then run `npm run test:contract` against it. Keep the spec byte for byte as upstream (it is excluded from oxfmt).
+See `spec/README.md` → Updating: copy the spec from the Sure commit your instance runs, regenerate the client, record the commit and run the contract tests against it.
 
 ## Deployment
 
