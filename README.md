@@ -228,7 +228,7 @@ The build output is static files. Any host works: GitHub Pages, Cloudflare Pages
 
 Every push to `main` that passes CI, E2E included, publishes `ghcr.io/sairus2k/trifles:latest` and `:<commit sha>`: nginx serving `dist/` on port 80, for `linux/amd64`. Before pushing, CI checks that the image serves every file of `dist/` unchanged.
 
-The author's instance runs it on a NAS as the `trifles` service of the Sure stack in Arcane (private `arcane-config` repo, `sure/compose.yaml`), on host port 3090. The existing Cloudflare Tunnel publishes it as `trifles.sairus.uk` (public hostname → `http://localhost:3090`). A new build reaches the NAS only when the `trifles` container is updated in Arcane. Don't redeploy the whole project for it: that also pulls a new `sure:stable`, and a Sure upgrade waits for the contract tests (`spec/README.md`). Arcane's `com.getarcaneapp.arcane.updater` label can only opt a container out of a global auto-update, not enable it for this one.
+The author's instance runs it on a NAS as the `trifles` service of the Sure stack in Arcane (private `arcane-config` repo, `sure/compose.yaml`), on the `net_proxy` network. The Cloudflare Tunnel sends `trifles.sairus.uk` to Nginx Proxy Manager, which proxies it to `http://trifles:80` the way it proxies `sure.sairus.uk` to `http://sure-web:3000`. A new build reaches the NAS only when the `trifles` container is updated in Arcane. Don't redeploy the whole project for it: that also pulls a new `sure:stable`, and a Sure upgrade waits for the contract tests (`spec/README.md`). Arcane's `com.getarcaneapp.arcane.updater` label can only opt a container out of a global auto-update, not enable it for this one.
 
 ## Security
 
