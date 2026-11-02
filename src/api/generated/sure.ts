@@ -5,7 +5,7 @@
  * OpenAPI documentation generated from executable request specs.
  * OpenAPI spec version: v1
  */
-import { sureFetch } from "../http";
+import { sureFetch } from "../http.ts";
 export type AccountDetailStatus = (typeof AccountDetailStatus)[keyof typeof AccountDetailStatus];
 
 export const AccountDetailStatus = {
@@ -132,6 +132,182 @@ export interface MerchantImportResult {
   merchants: MerchantDetail[];
 }
 
+export type RecurringTransactionStatus =
+  (typeof RecurringTransactionStatus)[keyof typeof RecurringTransactionStatus];
+
+export const RecurringTransactionStatus = {
+  suggested: "suggested",
+  active: "active",
+  paused: "paused",
+  inactive: "inactive",
+  ended: "ended",
+} as const;
+
+/**
+ * What kind of obligation this is.
+ */
+export type RecurringTransactionBillType =
+  (typeof RecurringTransactionBillType)[keyof typeof RecurringTransactionBillType];
+
+export const RecurringTransactionBillType = {
+  bill: "bill",
+  subscription: "subscription",
+  installment: "installment",
+  income: "income",
+  transfer: "transfer",
+  other: "other",
+} as const;
+
+export type RecurringTransactionWeekendAdjust =
+  (typeof RecurringTransactionWeekendAdjust)[keyof typeof RecurringTransactionWeekendAdjust];
+
+export const RecurringTransactionWeekendAdjust = {
+  none: "none",
+  skip: "skip",
+  before: "before",
+  after: "after",
+} as const;
+
+export type RecurringTransactionEndMode =
+  (typeof RecurringTransactionEndMode)[keyof typeof RecurringTransactionEndMode];
+
+export const RecurringTransactionEndMode = {
+  never: "never",
+  on_date: "on_date",
+  after_count: "after_count",
+} as const;
+
+export type RecurringTransactionRecurrenceRulesItemFrequency =
+  (typeof RecurringTransactionRecurrenceRulesItemFrequency)[keyof typeof RecurringTransactionRecurrenceRulesItemFrequency];
+
+export const RecurringTransactionRecurrenceRulesItemFrequency = {
+  weekly: "weekly",
+  monthly: "monthly",
+  yearly: "yearly",
+} as const;
+
+export interface Account {
+  id: string;
+  name: string;
+  /** @nullable */
+  account_type: string | null;
+  status?: string;
+}
+
+export interface Merchant {
+  id: string;
+  name: string;
+}
+
+export type RecurringTransactionRecurrenceRulesItem = {
+  frequency?: RecurringTransactionRecurrenceRulesItemFrequency;
+  interval?: number;
+  /**
+   * -1 means the last day of the month.
+   * @nullable
+   */
+  day_of_month?: number | null;
+  /** @nullable */
+  weekday?: number | null;
+  /**
+   * -1 means the last such weekday.
+   * @nullable
+   */
+  weekday_ordinal?: number | null;
+  /** @nullable */
+  month_of_year?: number | null;
+};
+
+export interface RecurringTransaction {
+  id: string;
+  amount: string;
+  /** Amount in currency minor units */
+  amount_cents: number;
+  currency: string;
+  /**
+   * @minimum 1
+   * @maximum 31
+   */
+  expected_day_of_month: number;
+  last_occurrence_date: string;
+  next_expected_date: string;
+  status: RecurringTransactionStatus;
+  /** @minimum 0 */
+  occurrence_count: number;
+  /** @nullable */
+  name?: string | null;
+  manual: boolean;
+  /**
+   * Link to the biller portal where this bill is paid. Only http and https are accepted; a bare host is stored as https.
+   * @nullable
+   */
+  payment_url?: string | null;
+  /** Whether this bill pays itself automatically. */
+  autopay?: boolean;
+  /**
+   * Free-text notes shown alongside the bill.
+   * @nullable
+   */
+  notes?: string | null;
+  /** What kind of obligation this is. */
+  bill_type?: RecurringTransactionBillType;
+  /** @nullable */
+  category_id?: string | null;
+  /**
+   * Reference occurrence that phases every-N cadences.
+   * @nullable
+   */
+  anchor_date?: string | null;
+  weekend_adjust?: RecurringTransactionWeekendAdjust;
+  end_mode?: RecurringTransactionEndMode;
+  /** @nullable */
+  end_on?: string | null;
+  /** @nullable */
+  end_after_count?: number | null;
+  /** @nullable */
+  renews_on?: string | null;
+  /** @nullable */
+  trial_ends_on?: string | null;
+  /** @nullable */
+  cancelled_on?: string | null;
+  /** Repetition patterns; multiple rows express semimonthly and similar multi-pattern cadences. Empty means legacy monthly on expected_day_of_month. */
+  recurrence_rules?: RecurringTransactionRecurrenceRulesItem[];
+  /** @nullable */
+  expected_amount_min?: string | null;
+  /**
+   * Minimum expected amount in currency minor units
+   * @nullable
+   */
+  expected_amount_min_cents?: number | null;
+  /** @nullable */
+  expected_amount_max?: string | null;
+  /**
+   * Maximum expected amount in currency minor units
+   * @nullable
+   */
+  expected_amount_max_cents?: number | null;
+  /** @nullable */
+  expected_amount_avg?: string | null;
+  /**
+   * Average expected amount in currency minor units
+   * @nullable
+   */
+  expected_amount_avg_cents?: number | null;
+  account?: Account | null;
+  merchant?: Merchant | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecurringTransactionCollection {
+  recurring_transactions: RecurringTransaction[];
+  pagination: Pagination;
+}
+
+export interface SuccessMessage {
+  message: string;
+}
+
 /**
  * How budgets and reports treat the transaction. loan_payment counts as an expense; investment_contribution does too when the family counts investment contributions as spending, and is otherwise reported as invested and left out of spending and income; funds_movement, cc_payment and one_time are left out of budget totals.
  */
@@ -146,24 +322,11 @@ export const TransactionKind = {
   investment_contribution: "investment_contribution",
 } as const;
 
-export interface Account {
-  id: string;
-  name: string;
-  /** @nullable */
-  account_type: string | null;
-  status?: string;
-}
-
 export interface Category {
   id: string;
   name: string;
   color: string;
   icon: string;
-}
-
-export interface Merchant {
-  id: string;
-  name: string;
 }
 
 export interface Tag {
@@ -304,6 +467,111 @@ export type GetApiV1CategoriesParams = {
 
 export type PostApiV1MerchantsBody = {
   file: Blob | File;
+};
+
+export type GetApiV1RecurringTransactionsParams = {
+  /** Page number (default: 1) */
+  page?: number;
+  /** Items per page (default: 25, max: 100) */
+  per_page?: number;
+  /** Filter by recurring status */
+  status?: GetApiV1RecurringTransactionsStatus;
+  /** Filter by account ID */
+  account_id?: string;
+};
+
+export type GetApiV1RecurringTransactionsStatus =
+  (typeof GetApiV1RecurringTransactionsStatus)[keyof typeof GetApiV1RecurringTransactionsStatus];
+
+export const GetApiV1RecurringTransactionsStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export type PostApiV1RecurringTransactionsBodyRecurringTransactionStatus =
+  (typeof PostApiV1RecurringTransactionsBodyRecurringTransactionStatus)[keyof typeof PostApiV1RecurringTransactionsBodyRecurringTransactionStatus];
+
+export const PostApiV1RecurringTransactionsBodyRecurringTransactionStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export type PostApiV1RecurringTransactionsBodyRecurringTransaction = unknown & {
+  /** @nullable */
+  account_id?: string | null;
+  /** @nullable */
+  merchant_id?: string | null;
+  /** @nullable */
+  name?: string | null;
+  amount: number;
+  currency: string;
+  /**
+   * @minimum 1
+   * @maximum 31
+   */
+  expected_day_of_month: number;
+  last_occurrence_date: string;
+  next_expected_date: string;
+  status?: PostApiV1RecurringTransactionsBodyRecurringTransactionStatus;
+  /** @minimum 0 */
+  occurrence_count?: number;
+  manual?: boolean;
+  /**
+   * Link to the biller portal. Only http and https are accepted; a bare host is stored as https.
+   * @nullable
+   */
+  payment_url?: string | null;
+  /** Whether this bill pays itself automatically. */
+  autopay?: boolean;
+  /**
+   * Free-text notes shown alongside the bill.
+   * @nullable
+   */
+  notes?: string | null;
+  /** @nullable */
+  expected_amount_min?: number | null;
+  /** @nullable */
+  expected_amount_max?: number | null;
+  /** @nullable */
+  expected_amount_avg?: number | null;
+};
+
+export type PostApiV1RecurringTransactionsBody = {
+  recurring_transaction: PostApiV1RecurringTransactionsBodyRecurringTransaction;
+};
+
+export type PatchApiV1RecurringTransactionsIdBodyRecurringTransactionStatus =
+  (typeof PatchApiV1RecurringTransactionsIdBodyRecurringTransactionStatus)[keyof typeof PatchApiV1RecurringTransactionsIdBodyRecurringTransactionStatus];
+
+export const PatchApiV1RecurringTransactionsIdBodyRecurringTransactionStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export type PatchApiV1RecurringTransactionsIdBodyRecurringTransaction = {
+  status?: PatchApiV1RecurringTransactionsIdBodyRecurringTransactionStatus;
+  /**
+   * @minimum 1
+   * @maximum 31
+   */
+  expected_day_of_month?: number;
+  next_expected_date?: string;
+  /**
+   * Link to the biller portal. Only http and https are accepted; a bare host is stored as https. Send an empty string to clear it.
+   * @nullable
+   */
+  payment_url?: string | null;
+  /** Whether this bill pays itself automatically. */
+  autopay?: boolean;
+  /**
+   * Free-text notes shown alongside the bill.
+   * @nullable
+   */
+  notes?: string | null;
+};
+
+export type PatchApiV1RecurringTransactionsIdBody = {
+  recurring_transaction?: PatchApiV1RecurringTransactionsIdBodyRecurringTransaction;
 };
 
 export type GetApiV1TransactionsParams = {
@@ -808,6 +1076,340 @@ export const getApiV1MerchantsId = async (
     ...options,
     method: "GET",
   });
+};
+
+export type getApiV1RecurringTransactionsResponse200 = {
+  data: RecurringTransactionCollection;
+  status: 200;
+};
+
+export type getApiV1RecurringTransactionsResponse401 = {
+  data: ErrorResponse;
+  status: 401;
+};
+
+export type getApiV1RecurringTransactionsResponse422 = {
+  data: ErrorResponse;
+  status: 422;
+};
+
+export type getApiV1RecurringTransactionsResponseSuccess =
+  getApiV1RecurringTransactionsResponse200 & {
+    headers: Headers;
+  };
+export type getApiV1RecurringTransactionsResponseError = (
+  | getApiV1RecurringTransactionsResponse401
+  | getApiV1RecurringTransactionsResponse422
+) & {
+  headers: Headers;
+};
+
+export type getApiV1RecurringTransactionsResponse =
+  | getApiV1RecurringTransactionsResponseSuccess
+  | getApiV1RecurringTransactionsResponseError;
+
+export const getGetApiV1RecurringTransactionsUrl = (
+  params?: GetApiV1RecurringTransactionsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/v1/recurring_transactions?${stringifiedParams}`
+    : `/api/v1/recurring_transactions`;
+};
+
+/**
+ * @summary List recurring transactions
+ */
+export const getApiV1RecurringTransactions = async (
+  params?: GetApiV1RecurringTransactionsParams,
+  options?: Parameters<typeof sureFetch>[1],
+): Promise<getApiV1RecurringTransactionsResponse> => {
+  return sureFetch<getApiV1RecurringTransactionsResponse>(
+    getGetApiV1RecurringTransactionsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export type postApiV1RecurringTransactionsResponse201 = {
+  data: RecurringTransaction;
+  status: 201;
+};
+
+export type postApiV1RecurringTransactionsResponse401 = {
+  data: ErrorResponse;
+  status: 401;
+};
+
+export type postApiV1RecurringTransactionsResponse403 = {
+  data: ErrorResponse;
+  status: 403;
+};
+
+export type postApiV1RecurringTransactionsResponse404 = {
+  data: ErrorResponse;
+  status: 404;
+};
+
+export type postApiV1RecurringTransactionsResponse422 = {
+  data: ErrorResponse;
+  status: 422;
+};
+
+export type postApiV1RecurringTransactionsResponseSuccess =
+  postApiV1RecurringTransactionsResponse201 & {
+    headers: Headers;
+  };
+export type postApiV1RecurringTransactionsResponseError = (
+  | postApiV1RecurringTransactionsResponse401
+  | postApiV1RecurringTransactionsResponse403
+  | postApiV1RecurringTransactionsResponse404
+  | postApiV1RecurringTransactionsResponse422
+) & {
+  headers: Headers;
+};
+
+export type postApiV1RecurringTransactionsResponse =
+  | postApiV1RecurringTransactionsResponseSuccess
+  | postApiV1RecurringTransactionsResponseError;
+
+export const getPostApiV1RecurringTransactionsUrl = () => {
+  return `/api/v1/recurring_transactions`;
+};
+
+/**
+ * @summary Create recurring transaction
+ */
+export const postApiV1RecurringTransactions = async (
+  postApiV1RecurringTransactionsBody: PostApiV1RecurringTransactionsBody,
+  options?: Parameters<typeof sureFetch>[1],
+): Promise<postApiV1RecurringTransactionsResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return sureFetch<postApiV1RecurringTransactionsResponse>(getPostApiV1RecurringTransactionsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(postApiV1RecurringTransactionsBody),
+  });
+};
+
+export type getApiV1RecurringTransactionsIdResponse200 = {
+  data: RecurringTransaction;
+  status: 200;
+};
+
+export type getApiV1RecurringTransactionsIdResponse401 = {
+  data: ErrorResponse;
+  status: 401;
+};
+
+export type getApiV1RecurringTransactionsIdResponse404 = {
+  data: ErrorResponse;
+  status: 404;
+};
+
+export type getApiV1RecurringTransactionsIdResponseSuccess =
+  getApiV1RecurringTransactionsIdResponse200 & {
+    headers: Headers;
+  };
+export type getApiV1RecurringTransactionsIdResponseError = (
+  | getApiV1RecurringTransactionsIdResponse401
+  | getApiV1RecurringTransactionsIdResponse404
+) & {
+  headers: Headers;
+};
+
+export type getApiV1RecurringTransactionsIdResponse =
+  | getApiV1RecurringTransactionsIdResponseSuccess
+  | getApiV1RecurringTransactionsIdResponseError;
+
+export const getGetApiV1RecurringTransactionsIdUrl = (id: string) => {
+  return `/api/v1/recurring_transactions/${id}`;
+};
+
+/**
+ * @summary Retrieve recurring transaction
+ */
+export const getApiV1RecurringTransactionsId = async (
+  id: string,
+  options?: Parameters<typeof sureFetch>[1],
+): Promise<getApiV1RecurringTransactionsIdResponse> => {
+  return sureFetch<getApiV1RecurringTransactionsIdResponse>(
+    getGetApiV1RecurringTransactionsIdUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export type patchApiV1RecurringTransactionsIdResponse200 = {
+  data: RecurringTransaction;
+  status: 200;
+};
+
+export type patchApiV1RecurringTransactionsIdResponse401 = {
+  data: ErrorResponse;
+  status: 401;
+};
+
+export type patchApiV1RecurringTransactionsIdResponse403 = {
+  data: ErrorResponse;
+  status: 403;
+};
+
+export type patchApiV1RecurringTransactionsIdResponse404 = {
+  data: ErrorResponse;
+  status: 404;
+};
+
+export type patchApiV1RecurringTransactionsIdResponse422 = {
+  data: ErrorResponse;
+  status: 422;
+};
+
+export type patchApiV1RecurringTransactionsIdResponseSuccess =
+  patchApiV1RecurringTransactionsIdResponse200 & {
+    headers: Headers;
+  };
+export type patchApiV1RecurringTransactionsIdResponseError = (
+  | patchApiV1RecurringTransactionsIdResponse401
+  | patchApiV1RecurringTransactionsIdResponse403
+  | patchApiV1RecurringTransactionsIdResponse404
+  | patchApiV1RecurringTransactionsIdResponse422
+) & {
+  headers: Headers;
+};
+
+export type patchApiV1RecurringTransactionsIdResponse =
+  | patchApiV1RecurringTransactionsIdResponseSuccess
+  | patchApiV1RecurringTransactionsIdResponseError;
+
+export const getPatchApiV1RecurringTransactionsIdUrl = (id: string) => {
+  return `/api/v1/recurring_transactions/${id}`;
+};
+
+/**
+ * @summary Update recurring transaction
+ */
+export const patchApiV1RecurringTransactionsId = async (
+  id: string,
+  patchApiV1RecurringTransactionsIdBody: PatchApiV1RecurringTransactionsIdBody,
+  options?: Parameters<typeof sureFetch>[1],
+): Promise<patchApiV1RecurringTransactionsIdResponse> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return sureFetch<patchApiV1RecurringTransactionsIdResponse>(
+    getPatchApiV1RecurringTransactionsIdUrl(id),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+      body: JSON.stringify(patchApiV1RecurringTransactionsIdBody),
+    },
+  );
+};
+
+export type deleteApiV1RecurringTransactionsIdResponse200 = {
+  data: SuccessMessage;
+  status: 200;
+};
+
+export type deleteApiV1RecurringTransactionsIdResponse401 = {
+  data: ErrorResponse;
+  status: 401;
+};
+
+export type deleteApiV1RecurringTransactionsIdResponse403 = {
+  data: ErrorResponse;
+  status: 403;
+};
+
+export type deleteApiV1RecurringTransactionsIdResponse404 = {
+  data: ErrorResponse;
+  status: 404;
+};
+
+export type deleteApiV1RecurringTransactionsIdResponseSuccess =
+  deleteApiV1RecurringTransactionsIdResponse200 & {
+    headers: Headers;
+  };
+export type deleteApiV1RecurringTransactionsIdResponseError = (
+  | deleteApiV1RecurringTransactionsIdResponse401
+  | deleteApiV1RecurringTransactionsIdResponse403
+  | deleteApiV1RecurringTransactionsIdResponse404
+) & {
+  headers: Headers;
+};
+
+export type deleteApiV1RecurringTransactionsIdResponse =
+  | deleteApiV1RecurringTransactionsIdResponseSuccess
+  | deleteApiV1RecurringTransactionsIdResponseError;
+
+export const getDeleteApiV1RecurringTransactionsIdUrl = (id: string) => {
+  return `/api/v1/recurring_transactions/${id}`;
+};
+
+/**
+ * @summary Delete recurring transaction
+ */
+export const deleteApiV1RecurringTransactionsId = async (
+  id: string,
+  options?: Parameters<typeof sureFetch>[1],
+): Promise<deleteApiV1RecurringTransactionsIdResponse> => {
+  return sureFetch<deleteApiV1RecurringTransactionsIdResponse>(
+    getDeleteApiV1RecurringTransactionsIdUrl(id),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
 };
 
 export type postApiV1TransactionsTransactionIdSplitResponse201 = {

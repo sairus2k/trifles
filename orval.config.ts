@@ -6,7 +6,10 @@ export default defineConfig({
       target: "./spec/sure-openapi.yaml",
       // The spec puts `format` outside `schema` on three path parameters (see spec/README.md).
       unsafeDisableValidation: true,
-      filters: { tags: ["Accounts", "Transactions", "Categories", "Merchants"] },
+      // Push probes write access with a recurring transaction create (README → Sure API notes).
+      filters: {
+        tags: ["Accounts", "Transactions", "Categories", "Merchants", "Recurring Transactions"],
+      },
     },
     output: {
       target: "./src/api/generated/sure.ts",

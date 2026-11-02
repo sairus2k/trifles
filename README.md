@@ -225,7 +225,9 @@ export default defineConfig({
     input: {
       target: "./spec/sure-openapi.yaml",
       unsafeDisableValidation: true,
-      filters: { tags: ["Accounts", "Transactions", "Categories", "Merchants"] },
+      filters: {
+        tags: ["Accounts", "Transactions", "Categories", "Merchants", "Recurring Transactions"],
+      },
     },
     output: {
       target: "./src/api/generated/sure.ts",
@@ -240,7 +242,7 @@ export default defineConfig({
 });
 ```
 
-- Only the tags v1 uses are generated (~1,300 lines instead of ~10,600 for the whole spec). Add a tag to `filters` when a feature needs it.
+- Only the tags v1 uses are generated (~1,900 lines instead of ~10,600 for the whole spec). Add a tag to `filters` when a feature needs it.
 - No MSW mocks are generated: the sync tests use the hand-written fake in `test/fake-sure/`. Add them in a separate file if a consumer appears, so the client never imports `msw` or faker.
 - The output is formatted by oxfmt, so a spec update produces a readable diff.
 
