@@ -25,3 +25,37 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm test
       - run: npm run test:e2e
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+
+  # A job of its own, so npm install scripts never run with a token that can push packages.
+  image:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/sairus2k/trifles
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - run: docker build -t "$IMAGE:$GITHUB_SHA" -t "$IMAGE:latest" .
+      - name: Serve every built file unchanged
+        shell: bash
+        run: |
+          docker run -d --rm -p 8080:80 "$IMAGE:$GITHUB_SHA"
+          for _ in $(seq 20); do curl -fs http://localhost:8080/ > /dev/null && break; sleep 0.5; done
+          cd dist
+          for file in $(find . -type f); do
+            curl -fsS "http://localhost:8080/${file#./}" | cmp - "$file"
+          done
+          curl -fsI http://localhost:8080/manifest.webmanifest | grep -i '^content-type: application/manifest+json'
+      - run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - run: docker push --all-tags "$IMAGE"

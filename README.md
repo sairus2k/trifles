@@ -222,6 +222,13 @@ The build output is static files. Any host works: GitHub Pages, Cloudflare Pages
 - Serve the app from its own path when it shares a domain with Sure, and build with that path as the base (`vite build --base=/quick/`). The service worker is registered with the base as its scope, and the manifest's `scope` and `start_url` are `"./"`, relative to the manifest, so the worker never intercepts Sure itself.
 - The service worker serves the cached app shell first. A new build is picked up on the next visit and applies after a reload.
 - If Sure is behind Cloudflare Access, add a bypass policy for `/api/*` (the API key protects it), or the API calls will be redirected to the login page.
+- Never share the origin with unrelated apps, such as project pages on `<user>.github.io`: any script on the origin can read the API key.
+
+### Container image
+
+Every push to `main` that passes CI, E2E included, publishes `ghcr.io/sairus2k/trifles:latest` and `:<commit sha>`: nginx serving `dist/` on port 80, for `linux/amd64`. Before pushing, CI checks that the image serves every file of `dist/` unchanged.
+
+The author's instance runs it on a NAS as the `trifles` service of the Sure stack in Arcane (private `arcane-config` repo, `sure/compose.yaml`), on host port 3090. The existing Cloudflare Tunnel publishes it as `trifles.sairus.uk` (public hostname → `http://localhost:3090`). A new build reaches the NAS only when the `trifles` container is updated in Arcane. Don't redeploy the whole project for it: that also pulls a new `sure:stable`, and a Sure upgrade waits for the contract tests (`spec/README.md`). Arcane's `com.getarcaneapp.arcane.updater` label can only opt a container out of a global auto-update, not enable it for this one.
 
 ## Security
 
