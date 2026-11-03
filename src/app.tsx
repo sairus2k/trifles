@@ -28,7 +28,8 @@ export function App() {
         when={showSettings()}
         fallback={
           <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col">
-            <header class="sticky top-0 flex items-center gap-2 border-b border-line bg-surface pt-safe px-safe pb-3">
+            {/* z-10: the Recent rows are positioned for the swipe and would paint over the header. */}
+            <header class="sticky top-0 z-10 flex items-center gap-2 border-b border-line bg-surface pt-safe px-safe pb-3">
               <h1 class="mr-auto min-w-0 truncate text-lg font-semibold">Sure Quick Entry</h1>
               <Show when={paused()}>
                 <button

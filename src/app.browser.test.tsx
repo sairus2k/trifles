@@ -5,6 +5,8 @@ import { userEvent } from "vitest/browser";
 import { FAKE_SURE_URL, createFakeSure } from "../test/fake-sure";
 import { App } from "./app";
 import { db } from "./db/schema";
+import "./index.css";
+import { enqueue } from "./sync/outbox";
 import { pauseSync, saveSettings } from "./sync/settings";
 
 const worker = setupWorker();
@@ -176,4 +178,57 @@ test("switching to another Sure leaves nothing of the old one on screen", async 
   const balances = await screen.findByRole("region", { name: "Balances" });
   await vi.waitFor(() => expect(balances.textContent).toMatch(/after the first sync/));
   expect(balances.textContent).not.toMatch("Cash");
+});
+
+test("the header stays above the recent list scrolled under it", async () => {
+  await saveSettings({ baseUrl: FAKE_SURE_URL, apiKey: "key" });
+  await Promise.all([db.transactions.clear(), db.outbox.clear()]);
+  for (let i = 0; i < 30; i++) {
+    await enqueue({
+      op: "create",
+      payload: {
+        accountId: "acc-cash",
+        date: `2026-10-${String(10 + (i % 3)).padStart(2, "0")}`,
+        amount: "1",
+        nature: "expense",
+        currency: "EUR",
+        name: `Coffee ${i}`,
+        notes: null,
+        categoryId: null,
+        merchantId: null,
+      },
+    });
+  }
+  render(() => <App />);
+  await mainHeading();
+  const row = (await screen.findByText("Coffee 23")).closest("li")!;
+
+  // Swiped open, so its Delete button is under the right end of the header too.
+  const swipe = row.querySelector("button:not([hidden])")!;
+  for (const [type, clientX] of [
+    ["pointerdown", 300],
+    ["pointermove", 150],
+    ["pointerup", 150],
+  ] as const) {
+    swipe.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX }));
+  }
+  const remove = await screen.findByRole("button", { name: "Delete" });
+
+  const header = screen.getByRole("banner");
+  const bar = header.getBoundingClientRect();
+  const y = bar.top + bar.height / 2;
+  window.scrollBy(0, row.getBoundingClientRect().top - y);
+  expect(row.getBoundingClientRect().top).toBeLessThan(y);
+  expect(remove.getBoundingClientRect().right).toBeGreaterThan(bar.right - 8);
+
+  for (const x of [bar.left + 8, bar.left + bar.width / 2, bar.right - 8]) {
+    const hit = document.elementFromPoint(x, y);
+    expect(header.contains(hit), hit?.outerHTML).toBe(true);
+  }
+  window.scrollTo(0, 0);
+
+  // The edit dialog is modal, in the top layer, so it stays above the header.
+  await userEvent.click(screen.getByText("Coffee 29"));
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog.contains(document.elementFromPoint(bar.left + bar.width / 2, y))).toBe(true);
 });
