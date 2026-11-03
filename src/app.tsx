@@ -1,7 +1,7 @@
 import { Loading, Show, createSignal } from "solid-js";
 import { createLiveQuery } from "./db/live";
 import { Balances } from "./features/balances/balances";
-import { Entry } from "./features/entry/entry";
+import { Entry, type Tab } from "./features/entry/entry";
 import { Recent } from "./features/recent/recent";
 import { Settings } from "./features/settings/settings";
 import { readSyncConfig } from "./sync/settings";
@@ -13,6 +13,7 @@ export function App() {
   // sets a new pausedAt, which opens Settings again.
   const [closedPause, setClosedPause] = createSignal<number>();
   const [balances, setBalances] = createSignal(false);
+  const [tab, setTab] = createSignal<Tab>("expense");
   const paused = () => config().pausedAt !== undefined;
   const showSettings = () =>
     !config().settings || opened() || (paused() && config().pausedAt !== closedPause());
@@ -57,8 +58,8 @@ export function App() {
             </header>
             {/* Hidden, not unmounted, so an amount typed before a look at the balances is still there. */}
             <div hidden={balances()} class="contents">
-              <Entry />
-              <Recent />
+              <Entry tab={tab()} onTabChange={setTab} />
+              <Recent kind={tab()} />
             </div>
             <Show when={balances()}>
               <Balances />

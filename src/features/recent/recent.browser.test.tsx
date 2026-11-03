@@ -11,6 +11,7 @@ import {
 import { toLocalDate } from "../../domain/dates";
 // Swiping uncovers the delete button by layout: without the styles the row would still cover it.
 import "../../index.css";
+import type { Tab } from "../entry/entry";
 import { LOCKED_MESSAGE } from "./editor";
 import { Recent } from "./recent";
 import { SENDING_REASON } from "./rows";
@@ -100,8 +101,8 @@ afterEach(() => {
 const row = (name: string) => screen.getAllByText(name)[0]!.closest("li")!;
 const headings = () => screen.getAllByRole("heading").map((h) => h.textContent);
 
-async function renderRecent() {
-  render(() => <Recent />);
+async function renderRecent(kind: Tab = "expense") {
+  render(() => <Recent kind={kind} />);
   await screen.findByRole("region", { name: "Recent transactions" });
 }
 
@@ -109,7 +110,6 @@ test("server and pending transactions are grouped by local day, newest first", a
   await db.transactions.bulkPut([
     tx("Rent", { date: lastYear, amountDecimal: "800.0" }),
     tx("Bakery", { date: yesterday, categoryId: "cat-food" }),
-    tx("Salary", { amountDecimal: "-2500.0", categoryId: "cat-salary", createdAt: 1_000 }),
     tx("Lunch", { createdAt: Date.now() + 60_000 }),
   ]);
   await db.outbox.put(create("c-1"));
@@ -119,15 +119,25 @@ test("server and pending transactions are grouped by local day, newest first", a
   expect(headings().slice(0, 2)).toEqual(["Today", "Yesterday"]);
   expect(headings()[2]).toMatch(String(new Date().getFullYear() - 1));
   const todayRows = within(screen.getAllByRole("list")[0]!).getAllByRole("listitem");
-  expect(todayRows.map((li) => /Lunch|Coffee|Salary/.exec(li.textContent!)?.[0])).toEqual([
+  expect(todayRows.map((li) => /Lunch|Coffee/.exec(li.textContent!)?.[0])).toEqual([
     "Lunch",
     "Coffee",
-    "Salary",
   ]);
   expect(row("Coffee").textContent).toContain("Pending");
+  expect(row("Coffee").textContent).toContain("-€3.50");
+});
+
+test("only rows of the selected kind are listed, income with a plus", async () => {
+  await db.transactions.bulkPut([
+    tx("Salary", { amountDecimal: "-2500.0", categoryId: "cat-salary" }),
+    tx("Bakery"),
+  ]);
+  await renderRecent("income");
+
+  await screen.findByText("Salary");
+  expect(screen.queryByText("Bakery")).toBeNull();
   expect(row("Salary").textContent).toContain("Salary · Cash");
   expect(row("Salary").textContent).toContain("+€2,500.00");
-  expect(row("Coffee").textContent).toContain("-€3.50");
 });
 
 test("a sent entry and its pulled transaction show once", async () => {
@@ -175,17 +185,22 @@ test("a transfer is one row from one account to the other", async () => {
       transferId: "trf-1",
     }),
   ]);
-  await renderRecent();
+  await renderRecent("transfer");
 
   await vi.waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
   expect(screen.getByRole("listitem").textContent).toContain("€100.00");
   expect(screen.getByRole("listitem").textContent).not.toMatch(/[+-]€/);
 });
 
-test("an empty cache says so", async () => {
-  await renderRecent();
+test.each([
+  ["expense", "No expenses yet."],
+  ["income", "No income yet."],
+  ["transfer", "No transfers yet."],
+] as const)("an empty %s list names the kind", async (kind, message) => {
+  await db.transactions.put(tx("Bakery", { amountDecimal: kind === "expense" ? "-3.5" : "3.5" }));
+  await renderRecent(kind);
 
-  expect(await screen.findByText("No transactions yet.")).toBeTruthy();
+  expect(await screen.findByText(message)).toBeTruthy();
 });
 
 function transferLegs(): TransactionRecord[] {
@@ -357,7 +372,7 @@ describe("delete", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
 
     await vi.waitFor(async () => expect(await outbox()).toEqual([]));
-    expect(await screen.findByText("No transactions yet.")).toBeTruthy();
+    expect(await screen.findByText("No expenses yet.")).toBeTruthy();
   });
 
   test("deleting a synced transaction queues a delete and hides the row", async () => {
@@ -376,7 +391,7 @@ describe("delete", () => {
 
   test("deleting a synced transfer queues a delete for each leg", async () => {
     await db.transactions.bulkPut(transferLegs());
-    await renderRecent();
+    await renderRecent("transfer");
     const dialog = await open("Card → Cash");
 
     expect(await within(dialog).findByText(/Transfers are changed in Sure/)).toBeTruthy();
@@ -407,7 +422,7 @@ describe("delete", () => {
       lastError: "Account is closed",
       createdAt: 1,
     });
-    await renderRecent();
+    await renderRecent("transfer");
     await screen.findAllByText("Card → Cash");
     expect(row("Card → Cash").textContent).toMatch(
       /Account is closed One leg .* may already be in Sure/,

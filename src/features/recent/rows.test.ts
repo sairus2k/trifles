@@ -10,7 +10,9 @@ import {
   FAILED_TRANSFER_ERROR,
   SENDING_REASON,
   UNPULLED_REASON,
+  ofKind,
   recentDays,
+  rowKind,
   type RecentData,
 } from "./rows";
 
@@ -386,5 +388,56 @@ describe("updates and deletes", () => {
 
   test("a change to a transaction outside the cache shows nothing", () => {
     expect(rows({ outbox: [update("u-1", "tx-gone", {}), remove("d-1", "tx-other")] })).toEqual([]);
+  });
+});
+
+describe("filtering by the form tab", () => {
+  test("a row is classified the way it is displayed", () => {
+    const result = rows({
+      transactions: [
+        tx("tx-expense"),
+        tx("tx-income", { amountDecimal: "-1200.0" }),
+        tx("tx-now-income"),
+        tx("tx-now-expense", { amountDecimal: "-50.0" }),
+        tx("leg-in", { accountId: "acc-cash", amountDecimal: "-100.0", transferId: "trf-1" }),
+        tx("leg-out", { accountId: "acc-card", amountDecimal: "100.0", transferId: "trf-1" }),
+      ],
+      outbox: [
+        create("c-expense"),
+        create("c-income", {}, { ...coffee, nature: "income" }),
+        transfer("t-pending"),
+        transfer("t-failed", { status: "failed", lastError: "Forbidden" }),
+        update("u-1", "tx-now-income", { nature: "income" }),
+        update("u-2", "tx-now-expense", { nature: "expense" }),
+      ],
+    });
+
+    expect(Object.fromEntries(result.map((row) => [row.key, rowKind(row)]))).toEqual({
+      "tx-expense": "expense",
+      "tx-income": "income",
+      "tx-now-income": "income",
+      "tx-now-expense": "expense",
+      "trf-1": "transfer",
+      "c-expense": "expense",
+      "c-income": "income",
+      "t-pending": "transfer",
+      "t-failed": "transfer",
+    });
+  });
+
+  test("only rows of the kind are kept, and days left without rows are dropped", () => {
+    const all = days({
+      transactions: [
+        tx("tx-salary", { date: "2026-10-31", amountDecimal: "-1200.0" }),
+        tx("tx-lunch"),
+      ],
+      outbox: [create("c-coffee"), transfer("t-1", { createdAt: 3_000 })],
+    });
+
+    const keys = (kind: "expense" | "income" | "transfer") =>
+      ofKind(all, kind).map((day) => [day.date, day.rows.map((r) => r.key)]);
+    expect(keys("expense")).toEqual([["2026-11-01", ["c-coffee", "tx-lunch"]]]);
+    expect(keys("income")).toEqual([["2026-10-31", ["tx-salary"]]]);
+    expect(keys("transfer")).toEqual([["2026-11-01", ["t-1"]]]);
   });
 });

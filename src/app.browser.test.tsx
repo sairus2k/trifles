@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { setupWorker } from "msw/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { userEvent } from "vitest/browser";
@@ -58,6 +58,78 @@ test("the main screen shows the entry form under the header and recent entries u
   const submit = screen.getByRole("button", { name: "Add expense" });
   const recent = await screen.findByRole("region", { name: "Recent transactions" });
   expect(submit.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+const cash = {
+  id: "acc-cash",
+  name: "Cash",
+  currency: "EUR",
+  classification: "asset",
+  balanceCents: 0,
+  status: "active",
+  updatedAt: 0,
+} as const;
+
+test("the recent list shows the kind of the selected form tab, whatever the edit dialog selects", async () => {
+  await saveSettings({ baseUrl: FAKE_SURE_URL, apiKey: "key" });
+  await Promise.all([db.transactions.clear(), db.outbox.clear(), db.accounts.put(cash)]);
+  for (const [name, nature] of [
+    ["Coffee", "expense"],
+    ["Paycheck", "income"],
+  ] as const) {
+    await enqueue({
+      op: "create",
+      payload: {
+        accountId: "acc-cash",
+        date: "2026-10-31",
+        amount: "10",
+        nature,
+        currency: "EUR",
+        name,
+        notes: null,
+        categoryId: null,
+        merchantId: null,
+      },
+    });
+  }
+  render(() => <App />);
+  await mainHeading();
+  const recent = await screen.findByRole("region", { name: "Recent transactions" });
+  const tab = (name: string) => screen.getByRole("tab", { name });
+
+  await vi.waitFor(() => expect(recent.textContent).toContain("Coffee"));
+  expect(recent.textContent).not.toContain("Paycheck");
+
+  await userEvent.click(tab("Income"));
+  await vi.waitFor(() => expect(recent.textContent).toContain("Paycheck"));
+  expect(recent.textContent).not.toContain("Coffee");
+
+  await userEvent.click(tab("Transfer"));
+  expect(await within(recent).findByText("No transfers yet.")).toBeTruthy();
+  expect(recent.textContent).not.toMatch(/Coffee|Paycheck/);
+
+  await userEvent.click(tab("Expense"));
+  await userEvent.click(await within(recent).findByText("Coffee"));
+  const dialog = await screen.findByRole("dialog");
+  await userEvent.click(await within(dialog).findByRole("tab", { name: "Income" }));
+  expect(within(dialog).getByRole("tab", { name: "Income" }).ariaSelected).toBe("true");
+  expect(recent.textContent).toContain("Coffee");
+  expect(recent.textContent).not.toContain("Paycheck");
+});
+
+test("the form comes back from Settings on the tab the recent list is filtered by", async () => {
+  await saveSettings({ baseUrl: FAKE_SURE_URL, apiKey: "key" });
+  await Promise.all([db.transactions.clear(), db.outbox.clear(), db.accounts.put(cash)]);
+  render(() => <App />);
+  await mainHeading();
+
+  await userEvent.click(await screen.findByRole("tab", { name: "Income" }));
+  await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+  await settingsHeading();
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(await screen.findByText("No income yet.")).toBeTruthy();
+  expect((await screen.findByRole("tab", { name: "Income" })).ariaSelected).toBe("true");
 });
 
 test("Settings opens from the header and closes without saving", async () => {

@@ -1,4 +1,4 @@
-import { For, Loading, Show, createMemo, createSignal, flush } from "solid-js";
+import { For, Loading, Show, createMemo, createSignal, flush, untrack } from "solid-js";
 import {
   db,
   type AccountRecord,
@@ -65,7 +65,7 @@ export async function readEntryData(): Promise<EntryData> {
   };
 }
 
-export function Entry() {
+export function Entry(props: { tab: Tab; onTabChange: (tab: Tab) => void }) {
   const data = createLiveQuery(readEntryData);
   return (
     <Loading>
@@ -79,7 +79,10 @@ export function Entry() {
       >
         <EntryForm
           data={data()}
-          initial={{ accountId: data().rememberedAccountId }}
+          // The tab outlives the form, which Settings unmounts, so the form reopens on the tab the
+          // Recent list is filtered by.
+          initial={{ tab: untrack(() => props.tab), accountId: data().rememberedAccountId }}
+          onTabChange={props.onTabChange}
           onAccountChange={(id) => void db.meta.put({ key: ACCOUNT_KEY, value: id })}
           onSubmit={enqueue}
           clearAfterSubmit
@@ -115,6 +118,7 @@ export interface EntryFormProps {
   keptMerchantName?: string;
   withDate?: boolean;
   submitLabel?: string;
+  onTabChange?: (tab: Tab) => void;
   onAccountChange?: (id: string) => void;
   onSubmit: (write: PendingWrite) => Promise<unknown>;
   clearAfterSubmit?: boolean;
@@ -288,6 +292,7 @@ export function EntryForm(props: EntryFormProps) {
               onClick={() => {
                 setTab(item.id);
                 setError(undefined);
+                props.onTabChange?.(item.id);
               }}
             >
               {item.label}

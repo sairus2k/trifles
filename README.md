@@ -29,7 +29,7 @@ The UX is inspired by the classic Russian budgeting service _Drebedengi_: one ke
 - **Calculator in the amount field:** `120+35.5-10` is evaluated on submit.
 - **The form stays open after submit:** amount and note are cleared, account and category are kept, focus returns to the amount.
 - **Merchant autocomplete** from history, which also pre-fills the category most often used with that merchant.
-- **Recent transactions** grouped by day, with pending (unsynced) entries marked; tap to edit, swipe to delete.
+- **Recent transactions** grouped by day, only of the kind on the selected form tab, with pending (unsynced) entries marked; tap to edit, swipe to delete.
 - **Balances** per account, split into assets and liabilities, with a pending delta shown as `≈`. No totals: summing accounts in different currencies would need exchange rates.
 - **Settings:** Sure instance URL and API key. A new key keeps the data on the device; another URL replaces it with that instance's (see Sync engine rules → Switching instance).
 

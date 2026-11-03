@@ -3,8 +3,15 @@ import { db } from "../../db/schema";
 import { createLiveQuery } from "../../db/live";
 import { dayLabel, todayLocal } from "../../domain/dates";
 import { formatAmount } from "../../domain/money";
+import type { Tab } from "../entry/entry";
 import { Editor, attempt, deleteAction, deleteLabel } from "./editor";
-import { recentDays, type RecentData, type RecentRow, type RowStatus } from "./rows";
+import { ofKind, recentDays, type RecentData, type RecentRow, type RowStatus } from "./rows";
+
+const EMPTY: Record<Tab, string> = {
+  expense: "No expenses yet.",
+  income: "No income yet.",
+  transfer: "No transfers yet.",
+};
 
 const STATUS: Record<RowStatus, { label: string; class: string }> = {
   pending: { label: "Pending", class: "bg-warning-surface text-warning" },
@@ -28,9 +35,10 @@ async function readRecentData(): Promise<RecentData> {
 const REVEAL_PX = 96;
 const DRAG_PX = 10;
 
-export function Recent() {
+export function Recent(props: { kind: Tab }) {
   const data = createLiveQuery(readRecentData);
-  const days = createMemo(() => recentDays(data()));
+  const all = createMemo(() => recentDays(data()));
+  const days = createMemo(() => ofKind(all(), props.kind));
   const [editing, setEditing] = createSignal<RecentRow>();
   const [notice, setNotice] = createSignal<string>();
 
@@ -50,7 +58,7 @@ export function Recent() {
       <Loading>
         <Show
           when={days().length > 0}
-          fallback={<p class="px-safe text-ink-muted">No transactions yet.</p>}
+          fallback={<p class="px-safe text-ink-muted">{EMPTY[props.kind]}</p>}
         >
           <For each={days()}>
             {(day) => (

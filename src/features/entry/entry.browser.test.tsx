@@ -63,7 +63,7 @@ const field = (label: string) => screen.getByLabelText<HTMLInputElement>(label);
 const optionNames = (label: string) => [...select(label).options].map((o) => o.textContent);
 
 async function renderEntry() {
-  render(() => <Entry />);
+  render(() => <Entry tab="expense" onTabChange={() => {}} />);
   await screen.findByLabelText("Amount");
 }
 
@@ -301,7 +301,7 @@ test("an entry made offline is queued", async () => {
 
 test("before the first sync there is nothing to choose from", async () => {
   await db.accounts.clear();
-  render(() => <Entry />);
+  render(() => <Entry tab="expense" onTabChange={() => {}} />);
 
   expect(
     await screen.findByText("Your Sure accounts appear here after the first sync."),

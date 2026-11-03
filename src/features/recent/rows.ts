@@ -6,6 +6,7 @@ import type {
   TransactionRecord,
 } from "../../db/schema";
 import { isEditable, type PendingWrite } from "../../sync/outbox";
+import type { Tab } from "../entry/entry";
 
 // The list shows the cache of server transactions and the outbox as one: each entry is one row, with
 // what the user last asked for and how far that got. Pure, so every rule is unit-tested.
@@ -205,6 +206,18 @@ export function recentDays(data: RecentData): RecentDay[] {
     else days.push({ date: row.date, rows: [row] });
   }
   return days;
+}
+
+/** The entry form tab a row belongs to, judged by what the row shows. */
+export function rowKind(row: RecentRow): Tab {
+  if (row.transfer) return "transfer";
+  return row.amount.startsWith("-") ? "expense" : "income";
+}
+
+export function ofKind(days: RecentDay[], kind: Tab): RecentDay[] {
+  return days
+    .map((day) => ({ ...day, rows: day.rows.filter((row) => rowKind(row) === kind) }))
+    .filter((day) => day.rows.length > 0);
 }
 
 function statusOf(record: OutboxRecord): { status?: RowStatus; error?: string } {
