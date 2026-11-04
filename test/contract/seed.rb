@@ -83,3 +83,17 @@ AccountShare.where(account_id: ENV.fetch("SURE_UNSHARED_ACCOUNT_ID")).delete_all
   })
   AccountShare.where(account: account, user: user).update_all(permission: permission) if permission
 end
+
+# One account of each other type, so the suite sees every `account_type` the Balances screen
+# groups by (TASK-29).
+%w[Investment Crypto Property Vehicle OtherAsset CreditCard Loan OtherLiability].each do |type|
+  Account.create_and_sync({
+    family: family,
+    owner: user,
+    name: type,
+    balance: 1000,
+    currency: "USD",
+    accountable_type: type,
+    accountable_attributes: {}
+  })
+end

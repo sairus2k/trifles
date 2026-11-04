@@ -14,7 +14,8 @@ import {
   type PostApiV1TransactionsBodyTransaction,
 } from "../../src/api/generated/sure";
 import { SureError, configureSure } from "../../src/api/http";
-import { FAKE_SURE_URL, createFakeSure, type FakeSure } from "./index";
+import { ACCOUNT_TYPES } from "../../src/features/balances/rows";
+import { FAKE_SURE_URL, createFakeSure, defaultSeed, type FakeSure } from "./index";
 
 const server = setupServer();
 let sure: FakeSure;
@@ -60,6 +61,15 @@ async function rejection(promise: Promise<unknown>) {
 function balanceOf(id: string) {
   return sure.accounts.find((a) => a.id === id)!;
 }
+
+test("seeds only account types the contract suite confirmed, of both classifications", () => {
+  const { accounts } = defaultSeed();
+
+  for (const account of accounts) expect(ACCOUNT_TYPES.has(account.account_type!)).toBe(true);
+  expect(new Set(accounts.map((account) => account.classification))).toEqual(
+    new Set(["asset", "liability"]),
+  );
+});
 
 describe("POST /transactions", () => {
   test("creates a transaction with 201 and a signed amount_decimal", async () => {

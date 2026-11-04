@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { AccountRecord } from "../../db/schema";
-import { balanceGroups } from "./rows";
+import { balanceGroups, type TypeGroup } from "./rows";
 
 function account(id: string, overrides: Partial<AccountRecord> = {}): AccountRecord {
   return {
@@ -15,7 +15,8 @@ function account(id: string, overrides: Partial<AccountRecord> = {}): AccountRec
   };
 }
 
-const names = (rows: { name: string }[]) => rows.map((row) => row.name);
+const rowsOf = (groups: TypeGroup[]) => groups.flatMap((group) => group.rows);
+const names = (groups: TypeGroup[]) => rowsOf(groups).map((row) => row.name);
 
 test("accounts split into assets and liabilities, each sorted by name", () => {
   const { assets, liabilities } = balanceGroups(
@@ -51,7 +52,7 @@ test.each([
   ["BTC", 150_000_000, "1.50000000"],
 ])("a %s balance of %i minor units is %s", (currency, balanceCents, balance) => {
   const { assets } = balanceGroups([account("A", { currency, balanceCents })], new Map());
-  expect(assets[0]).toEqual({ id: "A", name: "A", currency, balance });
+  expect(rowsOf(assets)[0]).toEqual({ id: "A", name: "A", currency, balance });
 });
 
 test("a liability keeps Sure's sign: positive while owed", () => {
@@ -59,7 +60,7 @@ test("a liability keeps Sure's sign: positive while owed", () => {
     [account("Card", { classification: "liability", balanceCents: 35000 })],
     new Map(),
   );
-  expect(liabilities[0]!.balance).toBe("350.00");
+  expect(rowsOf(liabilities)[0]!.balance).toBe("350.00");
 });
 
 test.each([
@@ -73,7 +74,7 @@ test.each([
       [account("A", { currency, balanceCents: cents })],
       new Map([["A", delta]]),
     );
-    expect(assets[0]!.pending).toEqual({ delta, projected });
+    expect(rowsOf(assets)[0]!.pending).toEqual({ delta, projected });
   },
 );
 
@@ -82,6 +83,71 @@ test("an account without a delta has no pending part", () => {
     [account("Cash"), account("Card", { classification: "liability", balanceCents: 500 })],
     new Map([["Card", "3.5000"]]),
   );
-  expect(assets[0]!.pending).toBeUndefined();
-  expect(liabilities[0]!.pending).toEqual({ delta: "3.5000", projected: "8.5000" });
+  expect(rowsOf(assets)[0]!.pending).toBeUndefined();
+  expect(rowsOf(liabilities)[0]!.pending).toEqual({ delta: "3.5000", projected: "8.5000" });
+});
+
+test("accounts are grouped by Sure's account type, in Sure's order of types", () => {
+  const { assets, liabilities } = balanceGroups(
+    [
+      account("Bitcoin", { accountType: "crypto" }),
+      account("Wallet", { accountType: "depository" }),
+      account("Mortgage", { classification: "liability", accountType: "loan" }),
+      account("Brokerage", { accountType: "investment" }),
+      account("Bank", { accountType: "depository" }),
+      account("Visa", { classification: "liability", accountType: "credit_card" }),
+      account("Car", { accountType: "vehicle" }),
+      account("House", { accountType: "property" }),
+      account("Art", { accountType: "other_asset" }),
+      account("IOU", { classification: "liability", accountType: "other_liability" }),
+    ],
+    new Map(),
+  );
+  const titled = (groups: TypeGroup[]) => groups.map((g) => [g.title, names([g])]);
+  expect(titled(assets)).toEqual([
+    ["Cash", ["Bank", "Wallet"]],
+    ["Investments", ["Brokerage"]],
+    ["Crypto", ["Bitcoin"]],
+    ["Properties", ["House"]],
+    ["Vehicles", ["Car"]],
+    ["Other Assets", ["Art"]],
+  ]);
+  expect(titled(liabilities)).toEqual([
+    ["Credit Cards", ["Visa"]],
+    ["Loans", ["Mortgage"]],
+    ["Other Liabilities", ["IOU"]],
+  ]);
+});
+
+test("an unknown or missing type joins the trailing Other group of its classification", () => {
+  const { assets, liabilities } = balanceGroups(
+    [
+      account("Pension", { accountType: "retirement" }),
+      account("Old cache"),
+      account("Art", { accountType: "other_asset" }),
+      account("Cash", { accountType: "depository" }),
+      account("Tab", { classification: "liability", accountType: "toString" }),
+      account("Visa", { classification: "liability", accountType: "credit_card" }),
+    ],
+    new Map(),
+  );
+  expect(assets.map((g) => [g.title, names([g])])).toEqual([
+    ["Cash", ["Cash"]],
+    ["Other Assets", ["Art", "Old cache", "Pension"]],
+  ]);
+  expect(liabilities.map((g) => [g.title, names([g])])).toEqual([
+    ["Credit Cards", ["Visa"]],
+    ["Other Liabilities", ["Tab"]],
+  ]);
+});
+
+test("a type with only inactive accounts has no group", () => {
+  const { assets } = balanceGroups(
+    [
+      account("Cash", { accountType: "depository" }),
+      account("Old car", { accountType: "vehicle", status: "disabled" }),
+    ],
+    new Map(),
+  );
+  expect(assets.map((g) => g.title)).toEqual(["Cash"]);
 });

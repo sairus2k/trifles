@@ -9,6 +9,8 @@ export interface AccountRecord {
   name: string;
   currency: string;
   classification: "asset" | "liability";
+  /** Sure's `account_type`. Missing when Sure sends null, and on records cached before it was kept. */
+  accountType?: string;
   balanceCents: number;
   status: AccountDetailStatus;
   updatedAt: number;

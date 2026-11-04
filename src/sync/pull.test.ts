@@ -81,6 +81,7 @@ describe("pullReference", () => {
         name: "Credit card",
         currency: "EUR",
         classification: "liability",
+        accountType: "credit_card",
         balanceCents: 20_000,
         status: "active",
         updatedAt: SEEDED_AT,
@@ -241,6 +242,28 @@ describe("pullRecent", () => {
       balanceCents: 99_650,
       updatedAt: NOW,
     });
+  });
+
+  test("fills in the account type of an account cached before the type was kept", async () => {
+    const { accounts } = defaultSeed();
+    sure = createFakeSure({
+      accounts: accounts.map((a) => (a.id === "acc-checking" ? { ...a, account_type: null } : a)),
+    });
+    server.use(...sure.handlers);
+    await db.accounts.put({
+      id: "acc-cash",
+      name: "Cash",
+      currency: "EUR",
+      classification: "asset",
+      balanceCents: 100_000,
+      status: "active",
+      updatedAt: 0,
+    });
+
+    await pullRecent();
+
+    expect(await db.accounts.get("acc-cash")).toMatchObject({ accountType: "depository" });
+    expect(await db.accounts.get("acc-checking")).not.toHaveProperty("accountType");
   });
 });
 

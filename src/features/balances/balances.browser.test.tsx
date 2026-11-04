@@ -46,9 +46,17 @@ function create(clientId: string, state: Partial<OutboxRecord> = {}): OutboxReco
 beforeEach(async () => {
   await Promise.all(db.tables.map((table) => table.clear()));
   await db.accounts.bulkPut([
-    account("acc-cash", "Cash", { balanceCents: 120_000 }),
-    account("acc-yen", "Yen wallet", { currency: "JPY", balanceCents: 5_000 }),
-    account("acc-card", "Card", { classification: "liability", balanceCents: 35_000 }),
+    account("acc-cash", "Cash", { accountType: "depository", balanceCents: 120_000 }),
+    account("acc-yen", "Yen wallet", {
+      accountType: "depository",
+      currency: "JPY",
+      balanceCents: 5_000,
+    }),
+    account("acc-card", "Card", {
+      classification: "liability",
+      accountType: "credit_card",
+      balanceCents: 35_000,
+    }),
     account("acc-draft", "Draft", { status: "draft" }),
   ]);
 });
@@ -59,7 +67,9 @@ afterEach(() => {
 
 const eur = (decimal: string) => formatAmount(decimal, "EUR");
 const region = (name: string) => screen.findByRole("region", { name });
-const row = (group: HTMLElement, name: string) => within(group).getByText(name).closest("li")!;
+// "Cash" is both an account and its group's heading.
+const row = (group: HTMLElement, name: string) =>
+  within(group).getByText(name, { selector: "li span" }).closest("li")!;
 // Looked up again on every call: a new query result renders new rows.
 const text = (group: string, name: string) =>
   row(screen.getByRole("region", { name: group }), name).textContent;
@@ -75,6 +85,26 @@ test("accounts are split into assets and liabilities with balances in their own 
   expect(within(assets).queryByText("Card")).toBeNull();
   expect(screen.queryByText("Draft")).toBeNull();
   expect(screen.queryByText(/≈/)).toBeNull();
+});
+
+test("each type is a group under its heading, in Sure's order, unknown types last", async () => {
+  await db.accounts.bulkPut([
+    account("acc-broker", "Brokerage", { accountType: "investment" }),
+    account("acc-old", "Old cache"),
+  ]);
+  render(() => <Balances />);
+
+  const headings = async (name: string) =>
+    within(await region(name))
+      .getAllByRole("heading", { level: 3 })
+      .map((h) => h.textContent);
+  await vi.waitFor(async () =>
+    expect(await headings("Assets")).toEqual(["Cash", "Investments", "Other Assets"]),
+  );
+  expect(await headings("Liabilities")).toEqual(["Credit Cards"]);
+  expect(row(await region("Investments"), "Brokerage").textContent).toContain(eur("0"));
+  expect(within(await region("Cash")).getAllByRole("listitem")).toHaveLength(2);
+  expect(row(await region("Other Assets"), "Old cache")).toBeTruthy();
 });
 
 test("with no accounts cached, the screen says they come with the first sync", async () => {

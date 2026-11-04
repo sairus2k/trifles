@@ -3,7 +3,7 @@ import { db } from "../../db/schema";
 import { createLiveQuery } from "../../db/live";
 import { formatAmount } from "../../domain/money";
 import { pendingDeltas } from "../../sync/outbox";
-import { balanceGroups, type BalanceGroups, type BalanceRow } from "./rows";
+import { balanceGroups, type BalanceGroups, type BalanceRow, type TypeGroup } from "./rows";
 
 // pendingDeltas() reads the outbox and the accounts, so the query re-runs when either changes.
 async function readBalances(): Promise<BalanceGroups> {
@@ -24,22 +24,29 @@ export function Balances() {
             </p>
           }
         >
-          <Group title="Assets" rows={groups().assets} />
-          <Group title="Liabilities" rows={groups().liabilities} />
+          <Classification title="Assets" groups={groups().assets} />
+          <Classification title="Liabilities" groups={groups().liabilities} />
         </Show>
       </Loading>
     </section>
   );
 }
 
-function Group(props: { title: string; rows: BalanceRow[] }) {
+function Classification(props: { title: string; groups: TypeGroup[] }) {
   return (
-    <Show when={props.rows.length > 0}>
-      <section aria-label={props.title} class="flex flex-col">
-        <h2 class="px-safe pb-1 text-sm font-semibold text-ink-muted">{props.title}</h2>
-        <ul class="flex flex-col border-y border-line">
-          <For each={props.rows}>{(row) => <Row row={row} />}</For>
-        </ul>
+    <Show when={props.groups.length > 0}>
+      <section aria-label={props.title} class="flex flex-col gap-3">
+        <h2 class="px-safe font-semibold">{props.title}</h2>
+        <For each={props.groups}>
+          {(group) => (
+            <section aria-label={group.title} class="flex flex-col">
+              <h3 class="px-safe pb-1 text-sm font-semibold text-ink-muted">{group.title}</h3>
+              <ul class="flex flex-col border-y border-line">
+                <For each={group.rows}>{(row) => <Row row={row} />}</For>
+              </ul>
+            </section>
+          )}
+        </For>
       </section>
     </Show>
   );

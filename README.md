@@ -30,7 +30,7 @@ The UX is inspired by the classic Russian budgeting service _Drebedengi_: one ke
 - **The form stays open after submit:** amount and note are cleared, account and category are kept, focus returns to the amount.
 - **Merchant autocomplete** from history, which also pre-fills the category most often used with that merchant.
 - **Recent transactions** grouped by day, only of the kind on the selected form tab, with pending (unsynced) entries marked; tap to edit, swipe to delete.
-- **Balances** per account, split into assets and liabilities, with a pending delta shown as `≈`. No totals: summing accounts in different currencies would need exchange rates.
+- **Balances** per account, split into assets and liabilities and grouped by account type as on Sure's accounts page, with a pending delta shown as `≈`. No totals: summing accounts in different currencies would need exchange rates.
 - **Settings:** Sure instance URL and API key. A new key keeps the data on the device; another URL replaces it with that instance's (see Sync engine rules → Switching instance).
 
 ### Not in v1
@@ -126,6 +126,7 @@ Verified against Sure `main` at commit `131e786` (2026-10-31). Pin the spec to t
 - **Write probe:** no answer carries the user's permission on an account (the account JSON has no such field, and there is no account shares endpoint). `POST /recurring_transactions` resolves `account_id` with the same `writable_by` scope before it checks anything else and leaves the `RecordNotFound` to `rescue_from`: `404 record_not_found` without write access. With it, blank `last_occurrence_date` and `next_expected_date` fail the create before it saves: `422`, nothing created. The probe also sends `expected_day_of_month: 0`, which the model rejects, should a later Sure stop checking the dates. The contract suite pins these answers.
 - **Amounts in responses:** use `amount_decimal` (exact, locale-independent, positive = outflow). `amount` is a formatted display string; do not parse it. Responses also contain `amount_cents` and `signed_amount_cents`, but **they are missing from the OpenAPI schema**, so they are not in the generated types; do not depend on them.
 - **Balances are recalculated asynchronously** after a write. Expect a stale balance immediately after `201`. The recalculation ends with `account.update!(balance:, cash_balance:)`, which moves the account's `updated_at` only when the balance changes.
+- **Account type:** `account_type` is `accountable_type.underscore` (`depository`, `credit_card`, ...), a free string in the spec. Neither the order of the types nor their names are in the API: the Balances screen copies `Accountable::TYPES` and the English `accounts.types_plural` from the pinned commit, and puts a type it does not know in the Other group of its classification. The contract suite checks that every type comes back as a value the app knows.
 - **Rate limit** for self-hosted instances is 10,000 requests per hour per key.
 - **Spec issues:** see `spec/README.md` → Known issues. Because of them orval needs `unsafeDisableValidation: true`.
 

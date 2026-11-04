@@ -93,6 +93,7 @@ function toAccount(account: AccountDetail): AccountRecord {
     currency: account.currency,
     // Sure has only these two; the spec types the field as a plain string.
     classification: account.classification === "liability" ? "liability" : "asset",
+    ...(account.account_type && { accountType: account.account_type }),
     balanceCents: account.balance_cents,
     status: account.status,
     updatedAt: Date.parse(account.updated_at),
